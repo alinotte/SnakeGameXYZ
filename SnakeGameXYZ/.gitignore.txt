@@ -1,0 +1,17 @@
+## Ignore Visual Studio temporary files
+[Bb]in/
+[Oo]bj/
+*.user
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+_ReSharper*/
+
+## Ignore SFML build files
+x64/
+x86/
+Debug/
+Release/
+*.exe
+*.dll

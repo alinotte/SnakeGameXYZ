@@ -1,6 +1,11 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include <random>
+#include <string>
+
+// miscellaneous
+void GenerateFood();
+void UpdateScoreText();
 
 // game window
 const int WINDOW_WIDTH = 800;
@@ -16,7 +21,7 @@ struct Segment // position of a segment
 // food
 struct Food
 {
-	int x, y;
+	float x, y;
 };
 
 // globals
@@ -27,6 +32,10 @@ sf::Color snakeColor = sf::Color::Green; // snake color
 
 Food food; // food position
 sf::Color foodColor = sf::Color::Red; // food color
+
+int score = 0;
+sf::Font font;
+sf::Text scoreText(font);
 
 enum class Direction
 {
@@ -82,11 +91,22 @@ void UpdateSnake()
 			break;
 		}
 
+		// check collision with food
+		if (newHead.x == food.x && newHead.y == food.y)
+		{
+			// not deleting tail
+			score += 10;
+			UpdateScoreText();
+			GenerateFood();
+		}
+		else
+		{
+			// deleting tail only if food wasnt eaten
+			snake.pop_back();
+		}
+
 		// adding new snake head
 		snake.insert(snake.begin(), newHead);
-
-		// deleting snake tail
-		snake.pop_back();
 
 		moveClock.restart(); // reset timer
 	}
@@ -134,7 +154,7 @@ void DrawFood()
 {
 	sf::RectangleShape foodShape(sf::Vector2f(SEGMENT_SIZE, SEGMENT_SIZE));
 	foodShape.setFillColor(foodColor);
-	foodShape.setPosition(sf::Vector2f(static_cast<float>(food.x), static_cast<float>(food.y)));
+	foodShape.setPosition(sf::Vector2f(food.x, food.y));
 	window.draw(foodShape);
 }
 
@@ -194,13 +214,32 @@ void HandleInput()
 	directionChanged = false; // reset flag after all events processed
 }
 
+
+void UpdateScoreText()
+{
+	scoreText.setString("Score: " + std::to_string(score));
+}
+
 // game init
 void GameInit()
 {
 	window.create(sf::VideoMode({ WINDOW_WIDTH, WINDOW_HEIGHT }), "Snake Game");
 	window.setFramerateLimit(60);
+
 	SnakeInit();
 	GenerateFood();
+
+	if (!font.openFromFile("Resources/Fonts/PoetsenOne-Regular.ttf"))
+	{
+		std::cerr << "Failed to load font!" << std::endl;
+		return;
+	}
+
+	scoreText.setString("Score: 0");
+	scoreText.setCharacterSize(24);
+	scoreText.setFillColor(sf::Color::White);
+	scoreText.setPosition(sf::Vector2f(10.f, 10.f));
+	UpdateScoreText();
 }
 
 void GameUpdate()
@@ -214,6 +253,7 @@ void DrawGame()
 
 	DrawSnake();
 	DrawFood();
+	window.draw(scoreText); // draw score
 
 	window.display();
 }

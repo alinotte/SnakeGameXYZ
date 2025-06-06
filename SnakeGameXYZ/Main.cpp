@@ -21,11 +21,25 @@ struct Food
 
 // globals
 sf::RenderWindow window;
+
 std::vector<Segment> snake; // snake segments in a vector
 sf::Color snakeColor = sf::Color::Green; // snake color
+
 Food food; // food position
 sf::Color foodColor = sf::Color::Red; // food color
 
+enum class Direction
+{
+	Up,
+	Down,
+	Left,
+	Right
+};
+
+Direction currentDirection = Direction::Right; // starting direction
+bool directionChanged = false; // flag to prevent sudden change in direction
+const float SPEED = 1.0f; // update intervals
+sf::Clock moveClock; // movement timer
 
 // init snake
 void SnakeInit()
@@ -40,6 +54,41 @@ void SnakeInit()
 	for (int i = 0; i < 3; ++i)
 	{
 		snake.push_back({ startX - i * SEGMENT_SIZE, startY });
+	}
+}
+
+void UpdateSnake()
+{
+	// move snake only by intervals
+	if (moveClock.getElapsedTime().asSeconds() >= SPEED)
+	{
+		// saving previous snake head
+		Segment newHead = snake[0];
+
+		// update snake head position
+		switch (currentDirection)
+		{
+		case Direction::Up:
+			newHead.y -= SEGMENT_SIZE;
+			break;
+		case Direction::Down:
+			newHead.y += SEGMENT_SIZE;
+			break;
+		case Direction::Left:
+			newHead.x -= SEGMENT_SIZE;
+			break;
+		case Direction::Right:
+			newHead.x += SEGMENT_SIZE;
+			break;
+		}
+
+		// adding new snake head
+		snake.insert(snake.begin(), newHead);
+
+		// deleting snake tail
+		snake.pop_back();
+
+		moveClock.restart(); // reset timer
 	}
 }
 
@@ -75,7 +124,7 @@ void GenerateFood()
 	{
 		if (segment.x == food.x && segment.y == food.y)
 		{
-			GenerateFood(); // ???
+			GenerateFood(); // checking through recursion
 			return;
 		}
 	}
@@ -101,12 +150,48 @@ void HandleInput()
 
 		if (auto keyEvent = event->getIf<sf::Event::KeyPressed>())
 		{
-			if (keyEvent->code == sf::Keyboard::Key::Escape)
+			// change movement direction if it hasnt changed in the current frame
+			if (!directionChanged)
 			{
-				window.close();
+				switch (keyEvent->code)
+				{
+				case sf::Keyboard::Key::Up:
+					if (currentDirection != Direction::Down)
+					{
+						currentDirection = Direction::Up;
+						directionChanged = true;
+					}
+					break;
+				case sf::Keyboard::Key::Down:
+					if (currentDirection != Direction::Up)
+					{
+						currentDirection = Direction::Down;
+						directionChanged = true;
+					}
+					break;
+				case sf::Keyboard::Key::Left:
+					if (currentDirection != Direction::Right)
+					{
+						currentDirection = Direction::Left;
+						directionChanged = true;
+					}
+					break;
+				case sf::Keyboard::Key::Right:
+					if (currentDirection != Direction::Left)
+					{
+						currentDirection = Direction::Right;
+						directionChanged = true;
+					}
+					break;
+				case sf::Keyboard::Key::Escape:
+					window.close();
+					break;
+				}
 			}
 		}
 	}
+
+	directionChanged = false; // reset flag after all events processed
 }
 
 // game init
@@ -120,7 +205,7 @@ void GameInit()
 
 void GameUpdate()
 {
-	// game logic
+	UpdateSnake();
 }
 
 void DrawGame()

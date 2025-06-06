@@ -6,6 +6,7 @@
 // miscellaneous
 void GenerateFood();
 void UpdateScoreText();
+void HandleGameOver();
 
 // game window
 const int WINDOW_WIDTH = 800;
@@ -47,7 +48,7 @@ enum class Direction
 
 Direction currentDirection = Direction::Right; // starting direction
 bool directionChanged = false; // flag to prevent sudden change in direction
-const float SPEED = 1.0f; // update intervals
+const float SPEED = 0.1f; // update intervals
 sf::Clock moveClock; // movement timer
 
 // init snake
@@ -91,6 +92,14 @@ void UpdateSnake()
 			break;
 		}
 
+		// check collision with boundaries
+		if (newHead.x < 0 || newHead.x >= WINDOW_WIDTH ||
+			newHead.y < 0 || newHead.y >= WINDOW_HEIGHT)
+		{
+			// game over
+			HandleGameOver();
+		}
+
 		// check collision with food
 		if (newHead.x == food.x && newHead.y == food.y)
 		{
@@ -105,11 +114,26 @@ void UpdateSnake()
 			snake.pop_back();
 		}
 
+		// check collision with its own body
+		for (size_t i = 0; i < snake.size(); ++i)
+		{
+			if (newHead.x == snake[i].x && newHead.y == snake[i].y)
+			{
+				HandleGameOver();
+			}
+		}
+
 		// adding new snake head
 		snake.insert(snake.begin(), newHead);
 
 		moveClock.restart(); // reset timer
 	}
+}
+
+void HandleGameOver()
+{
+	std::cout << "Game Over! Score: " << score << std::endl;
+	window.close();
 }
 
 // draw snake

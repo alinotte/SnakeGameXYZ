@@ -7,6 +7,7 @@
 void GenerateFood();
 void UpdateScoreText();
 void HandleGameOver();
+void GameInit();
 
 // game window
 const int WINDOW_WIDTH = 800;
@@ -37,6 +38,10 @@ sf::Color foodColor = sf::Color::Red; // food color
 int score = 0;
 sf::Font font;
 sf::Text scoreText(font);
+sf::Text gameOverText(font);
+
+// states
+bool gameOver;
 
 enum class Direction
 {
@@ -96,7 +101,6 @@ void UpdateSnake()
 		if (newHead.x < 0 || newHead.x >= WINDOW_WIDTH ||
 			newHead.y < 0 || newHead.y >= WINDOW_HEIGHT)
 		{
-			// game over
 			HandleGameOver();
 		}
 
@@ -132,8 +136,7 @@ void UpdateSnake()
 
 void HandleGameOver()
 {
-	std::cout << "Game Over! Score: " << score << std::endl;
-	window.close();
+	gameOver = true;
 }
 
 // draw snake
@@ -194,42 +197,47 @@ void HandleInput()
 
 		if (auto keyEvent = event->getIf<sf::Event::KeyPressed>())
 		{
-			// change movement direction if it hasnt changed in the current frame
-			if (!directionChanged)
+			if (gameOver && keyEvent->code == sf::Keyboard::Key::R)
 			{
-				switch (keyEvent->code)
+				GameInit();
+			}
+
+			// change movement direction if it hasnt changed in the current frame
+			if (!gameOver)
+			{
+				if (!directionChanged)
 				{
-				case sf::Keyboard::Key::Up:
-					if (currentDirection != Direction::Down)
+					switch (keyEvent->code)
 					{
-						currentDirection = Direction::Up;
-						directionChanged = true;
+					case sf::Keyboard::Key::Up:
+						if (currentDirection != Direction::Down)
+						{
+							currentDirection = Direction::Up;
+							directionChanged = true;
+						}
+						break;
+					case sf::Keyboard::Key::Down:
+						if (currentDirection != Direction::Up)
+						{
+							currentDirection = Direction::Down;
+							directionChanged = true;
+						}
+						break;
+					case sf::Keyboard::Key::Left:
+						if (currentDirection != Direction::Right)
+						{
+							currentDirection = Direction::Left;
+							directionChanged = true;
+						}
+						break;
+					case sf::Keyboard::Key::Right:
+						if (currentDirection != Direction::Left)
+						{
+							currentDirection = Direction::Right;
+							directionChanged = true;
+						}
+						break;
 					}
-					break;
-				case sf::Keyboard::Key::Down:
-					if (currentDirection != Direction::Up)
-					{
-						currentDirection = Direction::Down;
-						directionChanged = true;
-					}
-					break;
-				case sf::Keyboard::Key::Left:
-					if (currentDirection != Direction::Right)
-					{
-						currentDirection = Direction::Left;
-						directionChanged = true;
-					}
-					break;
-				case sf::Keyboard::Key::Right:
-					if (currentDirection != Direction::Left)
-					{
-						currentDirection = Direction::Right;
-						directionChanged = true;
-					}
-					break;
-				case sf::Keyboard::Key::Escape:
-					window.close();
-					break;
 				}
 			}
 		}
@@ -247,9 +255,6 @@ void UpdateScoreText()
 // game init
 void GameInit()
 {
-	window.create(sf::VideoMode({ WINDOW_WIDTH, WINDOW_HEIGHT }), "Snake Game");
-	window.setFramerateLimit(60);
-
 	SnakeInit();
 	GenerateFood();
 
@@ -262,12 +267,21 @@ void GameInit()
 	scoreText.setString("Score: 0");
 	scoreText.setCharacterSize(24);
 	scoreText.setFillColor(sf::Color::White);
-	scoreText.setPosition(sf::Vector2f(10.f, 10.f));
-	UpdateScoreText();
+	scoreText.setPosition(sf::Vector2f(20.f, 20.f));
+
+	gameOver = false;
+	gameOverText.setString("Game Over\nPress R to restart");
+	gameOverText.setCharacterSize(48);
+	gameOverText.setFillColor(sf::Color::Red);
+	gameOverText.setOrigin(sf::Vector2f(gameOverText.getLocalBounds().size.x / 2.f, gameOverText.getLocalBounds().size.y / 2.f));
+	gameOverText.setPosition(sf::Vector2f(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2));
 }
 
 void GameUpdate()
 {
+	if (gameOver)
+		return;
+
 	UpdateSnake();
 }
 
@@ -278,6 +292,10 @@ void DrawGame()
 	DrawSnake();
 	DrawFood();
 	window.draw(scoreText); // draw score
+	if (gameOver)
+	{
+		window.draw(gameOverText);
+	}
 
 	window.display();
 }
@@ -288,6 +306,9 @@ int main()
 	std::cout << "SFML version: "
 		<< SFML_VERSION_MAJOR << "."
 		<< SFML_VERSION_MINOR << "\n";
+
+	window.create(sf::VideoMode({ WINDOW_WIDTH, WINDOW_HEIGHT }), "Snake Game");
+	window.setFramerateLimit(60);
 
 	GameInit();
 	while (window.isOpen())

@@ -2,6 +2,8 @@
 #include <iostream>
 #include <random>
 #include <string>
+#include <fstream>
+#include <algorithm>
 
 // miscellaneous
 void GenerateFood();
@@ -37,11 +39,29 @@ sf::Color foodColor = sf::Color::Red; // food color
 
 int score = 0;
 sf::Font font;
-sf::Text scoreText(font);
 sf::Text gameOverText(font);
 
 // states
 bool gameOver;
+
+// leaderboard
+struct Record
+{
+	int score;
+	std::string name;
+};
+
+std::vector<Record> records;
+bool isLeaderboardVisible = false; // flag to show/hide leaderboard
+sf::Text scoreText(font);
+sf::Text leaderBoardText(font);
+sf::RectangleShape leaderboardRect(sf::Vector2f(300.f, 400.f)); // rectangle for leaderboard background
+sf::RectangleShape menuButton(sf::Vector2f(200.f, 50.f)); // rectangle for menu button
+sf::RectangleShape restartButton(sf::Vector2f(200.f, 50.f)); // rectangle for restart button
+sf::Text menuButtonText(font);
+sf::Text restartButtonText(font);
+int selectedbutton = 0; // 0 - restart, 1 - menu
+bool buttonPressed = false; // flag to prevent multiple button presses
 
 enum class Direction
 {
@@ -55,6 +75,42 @@ Direction currentDirection = Direction::Right; // starting direction
 bool directionChanged = false; // flag to prevent sudden change in direction
 const float SPEED = 0.1f; // update intervals
 sf::Clock moveClock; // movement timer
+
+void SaveRecordsToFile()
+{
+	std::ofstream file("leaderboard.txt");
+	if (file.is_open())
+	{
+		for (const auto& record : records)
+		{
+			file << record.name << " " << record.score << "\n";
+		}
+		file.close();
+	}
+	else
+	{
+		std::cerr << "Failed to open leaderboard file!" << std::endl;
+	}
+}
+
+void LoadRecordsFromFile()
+{
+	std::ifstream file("leaderboard.txt");
+	if (file.is_open())
+	{
+		records.clear(); // clear previous records
+		Record record;
+		while (file >> record.name >> record.score)
+		{
+			records.push_back(record);
+		}
+		file.close();
+	}
+	else
+	{
+		std::cerr << "Failed to open leaderboard file!" << std::endl;
+	}
+}
 
 // init snake
 void SnakeInit()
@@ -134,11 +190,6 @@ void UpdateSnake()
 	}
 }
 
-void HandleGameOver()
-{
-	gameOver = true;
-}
-
 // draw snake
 void DrawSnake()
 {
@@ -185,6 +236,30 @@ void DrawFood()
 	window.draw(foodShape);
 }
 
+void HandleGameOver()
+{
+	gameOver = true;
+	isLeaderboardVisible = true; // show leaderboard on game over
+
+	// save record if score is higher than any existing record
+	if (score > 0)
+	{
+		std::string playerName;
+		std::cout << "Enter your name: ";
+		std::cin >> playerName;
+		// add new record
+		records.push_back({ score, playerName });
+		std::sort(records.begin(), records.end(), [](const Record& a, const Record& b) {
+			return a.score > b.score; // sort by score descending
+		});
+		if (records.size() > 10) // keep only top 10 records
+		{
+			records.resize(10);
+		}
+		SaveRecordsToFile(); // save records to file
+	}
+}
+
 // handle input
 void HandleInput()
 {
@@ -192,6 +267,7 @@ void HandleInput()
 	{
 		if (event->is<sf::Event::Closed>())
 		{
+			SaveRecordsToFile(); // save records on close
 			window.close();
 		}
 
@@ -252,11 +328,12 @@ void UpdateScoreText()
 	scoreText.setString("Score: " + std::to_string(score));
 }
 
-// game init
+
 void GameInit()
 {
 	SnakeInit();
 	GenerateFood();
+	score = 0;
 
 	if (!font.openFromFile("Resources/Fonts/PoetsenOne-Regular.ttf"))
 	{
@@ -275,17 +352,83 @@ void GameInit()
 	gameOverText.setFillColor(sf::Color::Red);
 	gameOverText.setOrigin(sf::Vector2f(gameOverText.getLocalBounds().size.x / 2.f, gameOverText.getLocalBounds().size.y / 2.f));
 	gameOverText.setPosition(sf::Vector2f(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2));
+
+	// leaderboard init
+	leaderboardRect.setFillColor(sf::Color(50, 50, 50, 200)); // semi-transparent background
+	leaderboardRect.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 150.f, WINDOW_HEIGHT / 2 - 200.f)); // center it
+	leaderboardRect.setOutlineColor(sf::Color::White);
+	leaderboardRect.setOutlineThickness(2.f);
+	
+	leaderBoardText.setCharacterSize(24);
+	leaderBoardText.setFillColor(sf::Color::White);
+	leaderBoardText.setPosition(sf::Vector2f(leaderboardRect.getPosition().x + 10.f, leaderboardRect.getPosition().y + 10.f));	
+
+	// menu button init
+	menuButton.setFillColor(sf::Color::White);
+	menuButton.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 100.f, WINDOW_HEIGHT / 2 + 100.f));
+	menuButton.setFillColor(sf::Color(100, 100, 100));
+	menuButton.setOutlineColor(sf::Color::White);
+
+	menuButtonText.setString("Menu");
+	menuButtonText.setCharacterSize(24);
+	menuButtonText.setFillColor(sf::Color::White);
+	menuButtonText.setPosition(sf::Vector2f(menuButton.getPosition().x + 50.f, menuButton.getPosition().y + 10.f));
+
+	// restart button init
+	restartButton.setFillColor(sf::Color(100, 100, 100));
+	restartButton.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 100.f, WINDOW_HEIGHT / 2 + 200.f));
+	restartButton.setOutlineColor(sf::Color::White);
+	restartButton.setOutlineThickness(2.f);
+
+	restartButtonText.setString("Restart");
+	restartButtonText.setCharacterSize(24);
+	restartButtonText.setFillColor(sf::Color::White);
+	restartButtonText.setPosition(sf::Vector2f(restartButton.getPosition().x + 30.f, restartButton.getPosition().y + 10.f));
+
+	LoadRecordsFromFile(); // load leaderboard records from file
 }
 
-void GameUpdate()
+void GameUpdate(sf::RenderWindow& window)
 {
-	if (gameOver)
-		return;
+	if (gameOver && isLeaderboardVisible)
+	{
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) && !buttonPressed)
+		{
+			selectedbutton = 0; // toggle between buttons
+			buttonPressed = true;
+		}
+		else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right) && !buttonPressed)
+		{
+			selectedbutton = 1; // toggle between buttons
+			buttonPressed = true;
+		}
+		else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Enter) && !buttonPressed)
+		{
+			if (selectedbutton == 0) // restart button
+			{
+				GameInit();
+			}
+			else if (selectedbutton == 1) // menu button
+			{
+				isLeaderboardVisible = false; // hide leaderboard
+				gameOver = false; // reset game over state
+				SnakeInit(); // reset snake
+				GenerateFood(); // generate new food
+			}
+		}
 
-	UpdateSnake();
+		if(!sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) && !sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right))
+		{
+			buttonPressed = false; // reset button press flag
+		}
+	}
+	else
+	{
+		UpdateSnake();
+	}
 }
 
-void DrawGame()
+void DrawGame(sf::RenderWindow& window)
 {
 	window.clear(sf::Color::Black);
 
@@ -295,6 +438,39 @@ void DrawGame()
 	if (gameOver)
 	{
 		window.draw(gameOverText);
+	}
+
+	if(gameOver && isLeaderboardVisible)
+	{
+		window.draw(leaderboardRect); // draw leaderboard background
+		std::string leaderboardTextStr = "Leaderboard:\n";
+		for (const auto& record : records)
+		{
+			leaderboardTextStr += record.name + ": " + std::to_string(record.score) + "\n"; // format leaderboard text
+		}
+		leaderBoardText.setString(leaderboardTextStr);
+		window.draw(leaderBoardText); // draw leaderboard text
+
+		// draw menu button
+		window.draw(menuButton);
+		window.draw(menuButtonText);
+		// draw restart button
+		window.draw(restartButton);
+		window.draw(restartButtonText);
+		if (selectedbutton == 0) // highlight restart button
+		{
+			restartButton.setFillColor(sf::Color::Yellow);
+			menuButton.setFillColor(sf::Color(100, 100, 100)); // reset menu button color
+		}
+		else if (selectedbutton == 1) // highlight menu button
+		{
+			menuButton.setFillColor(sf::Color::Yellow);
+			restartButton.setFillColor(sf::Color(100, 100, 100)); // reset restart button color
+		}
+	}
+	else if (gameOver)
+	{
+		isLeaderboardVisible = true; // show leaderboard on game over
 	}
 
 	window.display();
@@ -314,8 +490,8 @@ int main()
 	while (window.isOpen())
 	{
 		HandleInput();
-		GameUpdate();
-		DrawGame();
+		GameUpdate(window);
+		DrawGame(window);
 	}
 
 	return 0;

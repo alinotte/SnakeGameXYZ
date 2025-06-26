@@ -1,498 +1,1162 @@
-#include <SFML/Graphics.hpp>
-#include <iostream>
-#include <random>
+﻿#include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
+#include <vector>
 #include <string>
+#include <iostream>
+#include <sstream>
 #include <fstream>
 #include <algorithm>
+#include <random>
+#include <ctime>
+#include <unordered_set>
 
-// miscellaneous
-void GenerateFood();
-void UpdateScoreText();
-void HandleGameOver();
-void GameInit();
+//misc
+void loadRecords();
 
-// game window
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
-
-// snake
-const int SEGMENT_SIZE = 20; // one snake segment size 20x20
-struct Segment // position of a segment
-{
-	float x, y;
+// Константы
+const int GRID_SIZE = 20;
+const int CELL_SIZE = 30;
+const int WINDOW_WIDTH = GRID_SIZE * CELL_SIZE;
+const int WINDOW_HEIGHT = GRID_SIZE * CELL_SIZE + 50; // +50 для панели счета
+const float BASE_SPEED = 0.2f;
+std::vector<std::string> levelMenuList = {
+      "Easy",
+      "Harder than Easy",
+      "Medium",
+      "Easier than Hard",
+      "Hard",
+      "Back"
 };
 
-// food
-struct Food
-{
-	float x, y;
-};
-
-// globals
-sf::RenderWindow window;
-
-std::vector<Segment> snake; // snake segments in a vector
-sf::Color snakeColor = sf::Color::Green; // snake color
-
-Food food; // food position
-sf::Color foodColor = sf::Color::Red; // food color
-
-int score = 0;
+// Глобальные переменные
+sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Snake Game");
 sf::Font font;
-sf::Text gameOverText(font);
+sf::SoundBuffer eatSoundBuffer, crashSoundBuffer, hoverSoundBuffer, startSoundBuffer;
+sf::Sound eatSound, crashSound, hoverSound, startSound;
+sf::Music bgMusic;
+sf::Texture appleTexture, snakeHeadTexture, snakeBodyTexture, wallTexture;
+sf::Sprite appleSprite, snakeHeadSprite, snakeBodySprite, wallSprite;
+std::string playerName = "XYZ";
+bool nameEntryActive = false;
+sf::Clock cursorBlinkClock;
+bool cursorVisible = true;
 
-// states
-bool gameOver;
+enum GameState {
+    MAIN_MENU,
+    LEVEL_SELECT,
+    IN_GAME,
+    PAUSE,
+    GAME_OVER,
+    RECORDS_SCREEN,
+    SETTINGS_MENU,
+    NEW_RECORD_PROMPT,
+    NAME_ENTRY
+};
+GameState gameState = MAIN_MENU;
 
-// leaderboard
-struct Record
-{
-	int score;
-	std::string name;
+struct GameData {
+    int score = 0;
+    int level = 1;
+    float speed = BASE_SPEED;
+    int pointsPerApple = 2;
+    bool gameOver = false;
+    bool gameWon = false;
+    bool soundEnabled = true;
+    bool musicEnabled = true;
+    bool dynamicWalls = false;
+    float startDelayTimer = 5.0f;
+    bool isGameStarted = false;
+    bool isPaused = false;
+    int selectedDifficulty = 0;
+} game;
+
+struct SnakeSegment {
+    int x, y;
+    bool isHead = false;
 };
 
-std::vector<Record> records;
-bool isLeaderboardVisible = false; // flag to show/hide leaderboard
-sf::Text scoreText(font);
-sf::Text leaderBoardText(font);
-sf::RectangleShape leaderboardRect(sf::Vector2f(300.f, 400.f)); // rectangle for leaderboard background
-sf::RectangleShape menuButton(sf::Vector2f(200.f, 50.f)); // rectangle for menu button
-sf::RectangleShape restartButton(sf::Vector2f(200.f, 50.f)); // rectangle for restart button
-sf::Text menuButtonText(font);
-sf::Text restartButtonText(font);
-int selectedbutton = 0; // 0 - restart, 1 - menu
-bool buttonPressed = false; // flag to prevent multiple button presses
-
-enum class Direction
-{
-	Up,
-	Down,
-	Left,
-	Right
+struct Wall {
+    int x, y;
 };
 
-Direction currentDirection = Direction::Right; // starting direction
-bool directionChanged = false; // flag to prevent sudden change in direction
-const float SPEED = 0.1f; // update intervals
-sf::Clock moveClock; // movement timer
+struct Record {
+    std::string name = "XYZ";
+    int score = 0;
+};
 
-void SaveRecordsToFile()
-{
-	std::ofstream file("leaderboard.txt");
-	if (file.is_open())
-	{
-		for (const auto& record : records)
-		{
-			file << record.name << " " << record.score << "\n";
-		}
-		file.close();
-	}
-	else
-	{
-		std::cerr << "Failed to open leaderboard file!" << std::endl;
-	}
+// Игровые объекты
+std::vector<SnakeSegment> snake;
+std::vector<Wall> walls;
+sf::Vector2i apple;
+sf::Vector2i direction(1, 0);
+sf::Vector2i nextDirection(1, 0);
+std::vector<Record> records(10); // Изначально 10 записей XYZ с 0 очков
+
+// Глобальные переменные меню
+int menuSelection = 0;
+int levelSelection = 0;
+int settingsSelection = 0;
+int gameOverSelection = 1;
+int promptSelection = 1;
+int pauseSelection = 0;
+
+// Функции
+void loadResources() {
+    if (!font.loadFromFile("Resources/Fonts/PoetsenOne-Regular.ttf")) {
+        throw std::runtime_error("Failed to load font");
+    }
+
+    if (!eatSoundBuffer.loadFromFile("Resources/Sounds/AppleEatSound.wav") ||
+        !crashSoundBuffer.loadFromFile("Resources/Sounds/GameOverSound.wav") ||
+        !hoverSoundBuffer.loadFromFile("Resources/Sounds/MenuHoverSound.wav") ||
+        !startSoundBuffer.loadFromFile("Resources/Sounds/GameStartSound.wav")) {
+        throw std::runtime_error("Failed to load sound files");
+    }
+
+    eatSound.setBuffer(eatSoundBuffer);
+    crashSound.setBuffer(crashSoundBuffer);
+    hoverSound.setBuffer(hoverSoundBuffer);
+    startSound.setBuffer(startSoundBuffer);
+
+
+    if (!bgMusic.openFromFile("Resources/Sounds/BackgroundMusic.wav")) {
+        throw std::runtime_error("Failed to load music file");
+    }
+    bgMusic.setLoop(true);
+
+    // Загрузка текстур
+    if (!appleTexture.loadFromFile("Resources/Apple/Apple.png") ||
+        !wallTexture.loadFromFile("Resources/Border/BrickLightGrey.png") ||
+        !snakeHeadTexture.loadFromFile("Resources/Snake/SnakeHead.png") ||
+        !snakeBodyTexture.loadFromFile("Resources/Snake/SnakeBody.png")) {
+        throw std::runtime_error("Failed to load texture files");
+    }
 }
 
-void LoadRecordsFromFile()
-{
-	std::ifstream file("leaderboard.txt");
-	if (file.is_open())
-	{
-		records.clear(); // clear previous records
-		Record record;
-		while (file >> record.name >> record.score)
-		{
-			records.push_back(record);
-		}
-		file.close();
-	}
-	else
-	{
-		std::cerr << "Failed to open leaderboard file!" << std::endl;
-	}
+void spawnApple() {
+    std::unordered_set<int> occupiedCells;
+
+    // Добавляем позиции стен
+    for (const auto& wall : walls) {
+        occupiedCells.insert(wall.y * GRID_SIZE + wall.x);
+    }
+
+    // Добавляем позиции змейки
+    for (const auto& segment : snake) {
+        occupiedCells.insert(segment.y * GRID_SIZE + segment.x);
+    }
+
+    // Ищем свободную позицию
+    std::vector<sf::Vector2i> freeCells;
+    for (int y = 0; y < GRID_SIZE; ++y) {
+        for (int x = 0; x < GRID_SIZE; ++x) {
+            if (occupiedCells.count(y * GRID_SIZE + x) == 0) {
+                freeCells.emplace_back(x, y);
+            }
+        }
+    }
+
+    // Если есть свободные клетки, выбираем случайную
+    if (!freeCells.empty()) {
+        int index = rand() % freeCells.size();
+        apple = freeCells[index];
+    }
+    else {
+        // Если нет свободных клеток - победа!
+        game.gameWon = true;
+        game.gameOver = true;
+    }
 }
 
-// init snake
-void SnakeInit()
-{
-	snake.clear(); // clear snake vector in case of restart
+bool checkCollision(int x, int y) {
+    // 1. Проверка выхода за границы
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE)
+        return true;
 
-	// starting position (window center)
-	float startX = WINDOW_WIDTH / 2 / SEGMENT_SIZE * SEGMENT_SIZE; // align to grid
-	float startY = WINDOW_HEIGHT / 2 / SEGMENT_SIZE * SEGMENT_SIZE;
+    // 2. Проверка стен
+    for (const auto& wall : walls) {
+        if (x == wall.x && y == wall.y)
+            return true;
+    }
 
-	// creating starting segments (3 in a row)
-	for (int i = 0; i < 3; ++i)
-	{
-		snake.push_back({ startX - i * SEGMENT_SIZE, startY });
-	}
+    // 3. Проверка тела (начиная с 4-го сегмента)
+    for (size_t i = 3; i < snake.size(); i++) {
+        if (x == snake[i].x && y == snake[i].y)
+            return true;
+    }
+
+    return false;
 }
 
-void UpdateSnake()
-{
-	// move snake only by intervals
-	if (moveClock.getElapsedTime().asSeconds() >= SPEED)
-	{
-		// saving previous snake head
-		Segment newHead = snake[0];
+void initGame() {
+    gameState = MAIN_MENU;
+    loadRecords();
 
-		// update snake head position
-		switch (currentDirection)
-		{
-		case Direction::Up:
-			newHead.y -= SEGMENT_SIZE;
-			break;
-		case Direction::Down:
-			newHead.y += SEGMENT_SIZE;
-			break;
-		case Direction::Left:
-			newHead.x -= SEGMENT_SIZE;
-			break;
-		case Direction::Right:
-			newHead.x += SEGMENT_SIZE;
-			break;
-		}
+    game.score = 0;
+    game.gameOver = false;
+    game.gameWon = false;
+    game.isGameStarted = false;
+    game.startDelayTimer = 5.0f;
 
-		// check collision with boundaries
-		if (newHead.x < 0 || newHead.x >= WINDOW_WIDTH ||
-			newHead.y < 0 || newHead.y >= WINDOW_HEIGHT)
-		{
-			HandleGameOver();
-		}
+    // Инициализация змейки
+    snake.clear();
+    snake.push_back({ GRID_SIZE / 2, GRID_SIZE / 2, true });
 
-		// check collision with food
-		if (newHead.x == food.x && newHead.y == food.y)
-		{
-			// not deleting tail
-			score += 10;
-			UpdateScoreText();
-			GenerateFood();
-		}
-		else
-		{
-			// deleting tail only if food wasnt eaten
-			snake.pop_back();
-		}
+    // Добавляем начальные сегменты тела (если нужно)
+    for (int i = 1; i < 3; i++) {
+        snake.push_back({ GRID_SIZE / 2 - i, GRID_SIZE / 2, false });
+    }
 
-		// check collision with its own body
-		for (size_t i = 0; i < snake.size(); ++i)
-		{
-			if (newHead.x == snake[i].x && newHead.y == snake[i].y)
-			{
-				HandleGameOver();
-			}
-		}
+    // Генерация стен
+    walls.clear();
+    for (int i = 0; i < GRID_SIZE; ++i) {
+        walls.push_back({ i, 0 }); // Верхняя стена
+        walls.push_back({ i, GRID_SIZE - 1 }); // Нижняя стена
+        walls.push_back({ 0, i }); // Левая стена
+        walls.push_back({ GRID_SIZE - 1, i }); // Правая стена
+    }
 
-		// adding new snake head
-		snake.insert(snake.begin(), newHead);
+    // Генерация яблока
+    spawnApple();
 
-		moveClock.restart(); // reset timer
-	}
+    // Настройки в зависимости от уровня
+    switch (game.level) {
+    case 0: // Простой
+        game.speed = BASE_SPEED * 1.0f;
+        game.pointsPerApple = 2;
+        break;
+
+    case 1: // Тяжелее простого
+        game.speed = BASE_SPEED * 0.8f;
+        game.pointsPerApple = 4;
+        break;
+
+    case 2: // Средний
+        game.speed = BASE_SPEED * 0.6f;
+        game.pointsPerApple = 6;
+        break;
+
+    case 3: // Легче тяжелого
+        game.speed = BASE_SPEED * 0.4f;
+        game.pointsPerApple = 8;
+        break;
+
+    case 4: // Тяжелый
+        game.speed = BASE_SPEED * 0.2f;
+        game.pointsPerApple = 10;
+        break;
+    }
+
+    direction = { 1, 0 };
+    nextDirection = { 1, 0 };
 }
 
-// draw snake
-void DrawSnake()
-{
-	sf::RectangleShape segmentShape(sf::Vector2f(SEGMENT_SIZE, SEGMENT_SIZE));
-	segmentShape.setFillColor(snakeColor);
+void moveSnake() {
+    // Обновляем направление
+    direction = nextDirection;
 
-	for (const auto& segment : snake)
-	{
-		segmentShape.setPosition(sf::Vector2f(segment.x, segment.y));
-		window.draw(segmentShape);
-	}
+    // Сохраняем старую голову
+    SnakeSegment newHead = snake.front();
+    newHead.isHead = false; // Сбрасываем флаг для старой головы
+
+    // Перемещаем голову
+    newHead.x += direction.x;
+    newHead.y += direction.y;
+    newHead.isHead = true; // Устанавливаем флаг для новой головы
+
+    // Проверка коллизий
+    if (checkCollision(newHead.x, newHead.y)) {
+        game.gameOver = true;
+        if (game.soundEnabled) crashSound.play();
+        return;
+    }
+
+    // Проверка яблока (тоже по клеткам!)
+    bool ateApple = (newHead.x == apple.x && newHead.y == apple.y);
+
+    // Вставляем новую голову
+    snake.insert(snake.begin(), newHead);
+
+    // У старой головы сбрасываем флаг isHead
+    if (snake.size() > 1) {
+        snake[1].isHead = false;
+    }
+
+    // Если не съели яблоко, удаляем последний сегмент
+    if (!ateApple) {
+        snake.pop_back();
+    }
+    else {
+        game.score += game.pointsPerApple;
+        if (game.soundEnabled) eatSound.play();
+        spawnApple();
+    }
 }
 
-void GenerateFood()
-{
-	// rng init
-	static std::random_device rd;
-	static std::mt19937 gen(rd());
+void loadRecords() {
+    records.clear();
+    std::ifstream file("records.dat");
+    if (file.is_open()) {
+        Record record;
+        while (file >> record.name >> record.score) {
+            records.push_back(record);
+        }
+        file.close();
+    }
 
-	// define field borders (accounting segment size)
-	std::uniform_int_distribution<> distX(0, (WINDOW_WIDTH - SEGMENT_SIZE) / SEGMENT_SIZE); // ???
-	std::uniform_int_distribution<> distY(0, (WINDOW_HEIGHT - SEGMENT_SIZE) / SEGMENT_SIZE);
+    // Если записей меньше 10, дополняем дефолтными
+    while (records.size() < 10) {
+        records.push_back({ "XYZ", 0 });
+    }
 
-	// generate position divisible by segment size
-	food.x = distX(gen) * SEGMENT_SIZE;
-	food.y = distY(gen) * SEGMENT_SIZE;
-
-	// checking if food generated on snake
-	for (const auto& segment : snake)
-	{
-		if (segment.x == food.x && segment.y == food.y)
-		{
-			GenerateFood(); // checking through recursion
-			return;
-		}
-	}
+    // Сортируем записи по убыванию очков
+    std::sort(records.begin(), records.end(), [](const Record& a, const Record& b) {
+        return a.score > b.score;
+        });
 }
 
-void DrawFood()
-{
-	sf::RectangleShape foodShape(sf::Vector2f(SEGMENT_SIZE, SEGMENT_SIZE));
-	foodShape.setFillColor(foodColor);
-	foodShape.setPosition(sf::Vector2f(food.x, food.y));
-	window.draw(foodShape);
+void saveRecords() {
+    std::ofstream file("records.dat");
+    if (file.is_open()) {
+        for (const auto& record : records) {
+            file << record.name << " " << record.score << " " << "\n";
+        }
+        file.close();
+    }
 }
 
-void HandleGameOver()
-{
-	gameOver = true;
-	isLeaderboardVisible = true; // show leaderboard on game over
+void addRecord(const std::string& name, int score) {
+    records.push_back({ name, score });
+    std::sort(records.begin(), records.end(), [](const Record& a, const Record& b) {
+        return a.score > b.score;
+        });
 
-	// save record if score is higher than any existing record
-	if (score > 0)
-	{
-		std::string playerName;
-		std::cout << "Enter your name: ";
-		std::cin >> playerName;
-		// add new record
-		records.push_back({ score, playerName });
-		std::sort(records.begin(), records.end(), [](const Record& a, const Record& b) {
-			return a.score > b.score; // sort by score descending
-		});
-		if (records.size() > 10) // keep only top 10 records
-		{
-			records.resize(10);
-		}
-		SaveRecordsToFile(); // save records to file
-	}
+    if (records.size() > 10) {
+        records.pop_back();
+    }
+
+    saveRecords();
 }
 
-// handle input
-void HandleInput()
-{
-	while (auto event = window.pollEvent())
-	{
-		if (event->is<sf::Event::Closed>())
-		{
-			SaveRecordsToFile(); // save records on close
-			window.close();
-		}
+void drawGame() {
+    window.clear(sf::Color(30, 30, 30));
 
-		if (auto keyEvent = event->getIf<sf::Event::KeyPressed>())
-		{
-			if (gameOver && keyEvent->code == sf::Keyboard::Key::R)
-			{
-				GameInit();
-			}
+    // Рисуем игровое поле
+    sf::RectangleShape gameArea(sf::Vector2f(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE));
+    gameArea.setFillColor(sf::Color::Black);
+    gameArea.setPosition(0, 50);
+    window.draw(gameArea);
 
-			// change movement direction if it hasnt changed in the current frame
-			if (!gameOver)
-			{
-				if (!directionChanged)
-				{
-					switch (keyEvent->code)
-					{
-					case sf::Keyboard::Key::Up:
-						if (currentDirection != Direction::Down)
-						{
-							currentDirection = Direction::Up;
-							directionChanged = true;
-						}
-						break;
-					case sf::Keyboard::Key::Down:
-						if (currentDirection != Direction::Up)
-						{
-							currentDirection = Direction::Down;
-							directionChanged = true;
-						}
-						break;
-					case sf::Keyboard::Key::Left:
-						if (currentDirection != Direction::Right)
-						{
-							currentDirection = Direction::Left;
-							directionChanged = true;
-						}
-						break;
-					case sf::Keyboard::Key::Right:
-						if (currentDirection != Direction::Left)
-						{
-							currentDirection = Direction::Right;
-							directionChanged = true;
-						}
-						break;
-					}
-				}
-			}
-		}
-	}
+    // Рисуем стены
+    wallSprite.setTexture(wallTexture);
+    wallSprite.setOrigin(wallTexture.getSize().x / 2, wallTexture.getSize().y / 2);
+    wallSprite.setScale(
+        static_cast<float>(CELL_SIZE) / wallTexture.getSize().x,
+        static_cast<float>(CELL_SIZE) / wallTexture.getSize().y
+    );
+    for (const auto& wall : walls) {
+        wallSprite.setPosition(
+            wall.x * CELL_SIZE + CELL_SIZE / 2,
+            wall.y * CELL_SIZE + 50 + CELL_SIZE / 2
+        );
+        window.draw(wallSprite);
+    }
 
-	directionChanged = false; // reset flag after all events processed
+    // Рисуем змейку
+    for (size_t i = 0; i < snake.size(); i++) {
+        sf::Sprite segment;
+        if (snake[i].isHead) {
+            segment.setTexture(snakeHeadTexture);
+            segment.setOrigin(snakeHeadTexture.getSize().x / 2, snakeHeadTexture.getSize().y / 2);
+            // Поворот головы
+            if (direction.x == 1) segment.setRotation(0);
+            else if (direction.x == -1) segment.setRotation(180);
+            else if (direction.y == -1) segment.setRotation(270);
+            else segment.setRotation(90);
+        }
+        else {
+            segment.setTexture(snakeBodyTexture);
+            segment.setOrigin(snakeBodyTexture.getSize().x / 2, snakeBodyTexture.getSize().y / 2);
+        }
+
+        segment.setScale(
+            static_cast<float>(CELL_SIZE) / snakeHeadTexture.getSize().x * 0.9f,
+            static_cast<float>(CELL_SIZE) / snakeHeadTexture.getSize().y * 0.9f
+        );
+        segment.setPosition(
+            snake[i].x * CELL_SIZE + CELL_SIZE / 2,
+            snake[i].y * CELL_SIZE + 50 + CELL_SIZE / 2
+        );
+        window.draw(segment);
+    }
+
+    // Рисуем яблоко
+    appleSprite.setTexture(appleTexture);
+    appleSprite.setOrigin(appleTexture.getSize().x / 2, appleTexture.getSize().y / 2); // Центрирование
+    appleSprite.setScale(
+        static_cast<float>(CELL_SIZE) / appleTexture.getSize().x * 0.9f, // Масштаб с небольшим отступом
+        static_cast<float>(CELL_SIZE) / appleTexture.getSize().y * 0.9f
+    );
+    appleSprite.setPosition(
+        apple.x * CELL_SIZE + CELL_SIZE / 2,
+        apple.y * CELL_SIZE + 50 + CELL_SIZE / 2
+    );
+    window.draw(appleSprite);
+
+    // Если игра ожидает старта (таймер обратного отсчета)
+    if (!game.isGameStarted) {
+        sf::Text countdownText;
+        countdownText.setFont(font);
+        // Округляем вверх, чтобы не показывать "0.0"
+        int secondsLeft = static_cast<int>(std::ceil(game.startDelayTimer));
+        countdownText.setString("Game starts in: " + std::to_string(secondsLeft) + "s");
+        countdownText.setCharacterSize(30);
+        countdownText.setFillColor(sf::Color::Yellow);
+        countdownText.setStyle(sf::Text::Bold);
+        countdownText.setOrigin(countdownText.getLocalBounds().width / 2, countdownText.getLocalBounds().height / 2);
+        countdownText.setPosition(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+
+        // Затемнение фона
+        sf::RectangleShape overlay(sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
+        overlay.setFillColor(sf::Color(0, 0, 0, 150));
+        window.draw(overlay);
+
+        window.draw(countdownText);
+    }
+
+    // Рисуем счет и уровень
+    sf::Text infoText;
+    infoText.setFont(font);
+    infoText.setString("Score: " + std::to_string(game.score) + " | Level: " + levelMenuList[game.level]);
+    infoText.setCharacterSize(24);
+    infoText.setFillColor(sf::Color::White);
+    infoText.setPosition(WINDOW_WIDTH - infoText.getLocalBounds().width - 10, 10);
+    window.draw(infoText);
+
+    window.display();
 }
 
+void drawMainMenu() {
+    window.clear(sf::Color(30, 30, 30));
 
-void UpdateScoreText()
-{
-	scoreText.setString("Score: " + std::to_string(score));
+    sf::Text title;
+    title.setFont(font);
+    title.setString("SNAKE GAME");
+    title.setCharacterSize(60);
+    title.setFillColor(sf::Color::Green);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
+    window.draw(title);
+
+    std::vector<std::string> menuItems = {
+        "Start Game",
+        "Level Select",
+        "Records",
+        "Settings",
+        "Exit"
+    };
+
+    for (size_t i = 0; i < menuItems.size(); i++) {
+        sf::Text item;
+        item.setFont(font);
+        item.setString(menuItems[i]);
+        item.setCharacterSize(30);
+        item.setFillColor(i == menuSelection ? sf::Color::Yellow : sf::Color::White);
+        item.setPosition(WINDOW_WIDTH / 2 - item.getLocalBounds().width / 2, 180 + i * 40);
+        window.draw(item);
+    }
+
+    sf::Text controls;
+    controls.setFont(font);
+    controls.setString("WSAD: Navigate  Enter: Select P: Pause B: Back");
+    controls.setCharacterSize(20);
+    controls.setFillColor(sf::Color(150, 150, 150));
+    controls.setPosition(WINDOW_WIDTH / 2 - controls.getLocalBounds().width / 2,
+        WINDOW_HEIGHT - 40);
+    window.draw(controls);
+
+    window.display();
 }
 
+void drawLevelSelect() {
+    window.clear(sf::Color(30, 30, 30));
 
-void GameInit()
-{
-	SnakeInit();
-	GenerateFood();
-	score = 0;
+    sf::Text title;
+    title.setFont(font);
+    title.setString("SELECT DIFFICULTY");
+    title.setCharacterSize(50);
+    title.setFillColor(sf::Color::Green);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
+    window.draw(title);
 
-	if (!font.openFromFile("Resources/Fonts/PoetsenOne-Regular.ttf"))
-	{
-		std::cerr << "Failed to load font!" << std::endl;
-		return;
-	}
+    // Добавляем "current" к выбранному уровню
+    std::vector<std::string> displayNames = levelMenuList;
+    for (size_t i = 0; i < levelMenuList.size(); i++) {
+        if (i == game.selectedDifficulty) {
+            displayNames[i] += " (current)";
+        }
+    }
 
-	scoreText.setString("Score: 0");
-	scoreText.setCharacterSize(24);
-	scoreText.setFillColor(sf::Color::White);
-	scoreText.setPosition(sf::Vector2f(20.f, 20.f));
+    for (size_t i = 0; i < levelMenuList.size(); i++) {
+        sf::Text item;
+        item.setFont(font);
+        item.setString(displayNames[i]);
+        item.setCharacterSize(24);
+        item.setFillColor(i == levelSelection ? sf::Color::Yellow : sf::Color::White);
+        item.setPosition(WINDOW_WIDTH / 2 - item.getLocalBounds().width / 2, 150 + i * 40);
+        window.draw(item);
+    }
 
-	gameOver = false;
-	gameOverText.setString("Game Over\nPress R to restart");
-	gameOverText.setCharacterSize(48);
-	gameOverText.setFillColor(sf::Color::Red);
-	gameOverText.setOrigin(sf::Vector2f(gameOverText.getLocalBounds().size.x / 2.f, gameOverText.getLocalBounds().size.y / 2.f));
-	gameOverText.setPosition(sf::Vector2f(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2));
-
-	// leaderboard init
-	leaderboardRect.setFillColor(sf::Color(50, 50, 50, 200)); // semi-transparent background
-	leaderboardRect.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 150.f, WINDOW_HEIGHT / 2 - 200.f)); // center it
-	leaderboardRect.setOutlineColor(sf::Color::White);
-	leaderboardRect.setOutlineThickness(2.f);
-	
-	leaderBoardText.setCharacterSize(24);
-	leaderBoardText.setFillColor(sf::Color::White);
-	leaderBoardText.setPosition(sf::Vector2f(leaderboardRect.getPosition().x + 10.f, leaderboardRect.getPosition().y + 10.f));	
-
-	// menu button init
-	menuButton.setFillColor(sf::Color::White);
-	menuButton.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 100.f, WINDOW_HEIGHT / 2 + 100.f));
-	menuButton.setFillColor(sf::Color(100, 100, 100));
-	menuButton.setOutlineColor(sf::Color::White);
-
-	menuButtonText.setString("Menu");
-	menuButtonText.setCharacterSize(24);
-	menuButtonText.setFillColor(sf::Color::White);
-	menuButtonText.setPosition(sf::Vector2f(menuButton.getPosition().x + 50.f, menuButton.getPosition().y + 10.f));
-
-	// restart button init
-	restartButton.setFillColor(sf::Color(100, 100, 100));
-	restartButton.setPosition(sf::Vector2f(WINDOW_WIDTH / 2 - 100.f, WINDOW_HEIGHT / 2 + 200.f));
-	restartButton.setOutlineColor(sf::Color::White);
-	restartButton.setOutlineThickness(2.f);
-
-	restartButtonText.setString("Restart");
-	restartButtonText.setCharacterSize(24);
-	restartButtonText.setFillColor(sf::Color::White);
-	restartButtonText.setPosition(sf::Vector2f(restartButton.getPosition().x + 30.f, restartButton.getPosition().y + 10.f));
-
-	LoadRecordsFromFile(); // load leaderboard records from file
+    window.display();
 }
 
-void GameUpdate(sf::RenderWindow& window)
-{
-	if (gameOver && isLeaderboardVisible)
-	{
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) && !buttonPressed)
-		{
-			selectedbutton = 0; // toggle between buttons
-			buttonPressed = true;
-		}
-		else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right) && !buttonPressed)
-		{
-			selectedbutton = 1; // toggle between buttons
-			buttonPressed = true;
-		}
-		else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Enter) && !buttonPressed)
-		{
-			if (selectedbutton == 0) // restart button
-			{
-				GameInit();
-			}
-			else if (selectedbutton == 1) // menu button
-			{
-				isLeaderboardVisible = false; // hide leaderboard
-				gameOver = false; // reset game over state
-				SnakeInit(); // reset snake
-				GenerateFood(); // generate new food
-			}
-		}
+void drawRecordsScreen() {
+    window.clear(sf::Color(30, 30, 30)); // Темно-серый фон
 
-		if(!sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) && !sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right))
-		{
-			buttonPressed = false; // reset button press flag
-		}
-	}
-	else
-	{
-		UpdateSnake();
-	}
+    // Заголовок
+    sf::Text title;
+    title.setFont(font);
+    title.setString("HIGH SCORES");
+    title.setCharacterSize(50);
+    title.setFillColor(sf::Color::Green);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 40);
+    window.draw(title);
+
+    // Шапка таблицы
+    sf::Text headerName;
+    headerName.setFont(font);
+    headerName.setString("NAME");
+    headerName.setCharacterSize(26);
+    headerName.setFillColor(sf::Color::Yellow);
+    headerName.setPosition(150, 120);
+    window.draw(headerName);
+
+    sf::Text headerScore;
+    headerScore.setFont(font);
+    headerScore.setString("SCORE");
+    headerScore.setCharacterSize(26);
+    headerScore.setFillColor(sf::Color::Yellow);
+    headerScore.setPosition(400, 120);
+    window.draw(headerScore);
+
+    // Разделительная линия
+    sf::RectangleShape line(sf::Vector2f(500, 2));
+    line.setPosition(100, 160);
+    line.setFillColor(sf::Color(80, 80, 80));
+    window.draw(line);
+
+    // Вывод рекордов
+    for (int i = 0; i < 10; i++) {
+        float yPos = 180 + i * 40;
+
+        // Порядковый номер
+        sf::Text numText;
+        numText.setFont(font);
+        numText.setString(std::to_string(i + 1) + ".");
+        numText.setCharacterSize(24);
+        numText.setFillColor(sf::Color::White);
+        numText.setPosition(100, yPos);
+        window.draw(numText);
+
+        // Имя игрока
+        sf::Text nameText;
+        nameText.setFont(font);
+        nameText.setString(records[i].name);
+        nameText.setCharacterSize(24);
+        nameText.setFillColor(sf::Color::White);
+        nameText.setPosition(150, yPos);
+        window.draw(nameText);
+
+        // Очки (выравнивание по правому краю)
+        sf::Text scoreText;
+        scoreText.setFont(font);
+        scoreText.setString(std::to_string(records[i].score));
+        scoreText.setCharacterSize(24);
+        scoreText.setFillColor(sf::Color::White);
+        scoreText.setPosition(400, yPos);
+        window.draw(scoreText);
+    }
+
+    // Кнопка возврата
+    sf::Text backText;
+    backText.setFont(font);
+    backText.setString("Press B to return to menu");
+    backText.setCharacterSize(22);
+    backText.setFillColor(sf::Color(150, 150, 150));
+    backText.setPosition(WINDOW_WIDTH / 2 - backText.getLocalBounds().width / 2,
+        WINDOW_HEIGHT - 60);
+    window.draw(backText);
+
+    window.display();
 }
 
-void DrawGame(sf::RenderWindow& window)
-{
-	window.clear(sf::Color::Black);
+void drawSettingsMenu() {
+    window.clear(sf::Color(30, 30, 30));
 
-	DrawSnake();
-	DrawFood();
-	window.draw(scoreText); // draw score
-	if (gameOver)
-	{
-		window.draw(gameOverText);
-	}
+    // Заголовок
+    sf::Text title;
+    title.setFont(font);
+    title.setString("SETTINGS");
+    title.setCharacterSize(50);
+    title.setFillColor(sf::Color::Green);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
+    window.draw(title);
 
-	if(gameOver && isLeaderboardVisible)
-	{
-		window.draw(leaderboardRect); // draw leaderboard background
-		std::string leaderboardTextStr = "Leaderboard:\n";
-		for (const auto& record : records)
-		{
-			leaderboardTextStr += record.name + ": " + std::to_string(record.score) + "\n"; // format leaderboard text
-		}
-		leaderBoardText.setString(leaderboardTextStr);
-		window.draw(leaderBoardText); // draw leaderboard text
+    // Настройки звука
+    sf::Text soundText;
+    soundText.setFont(font);
+    soundText.setString("Sound: " + std::string(game.soundEnabled ? "ON" : "OFF"));
+    soundText.setCharacterSize(30);
+    soundText.setFillColor(settingsSelection == 0 ? sf::Color::Yellow : sf::Color::White);
+    soundText.setPosition(WINDOW_WIDTH / 2 - soundText.getLocalBounds().width / 2, 150);
+    window.draw(soundText);
 
-		// draw menu button
-		window.draw(menuButton);
-		window.draw(menuButtonText);
-		// draw restart button
-		window.draw(restartButton);
-		window.draw(restartButtonText);
-		if (selectedbutton == 0) // highlight restart button
-		{
-			restartButton.setFillColor(sf::Color::Yellow);
-			menuButton.setFillColor(sf::Color(100, 100, 100)); // reset menu button color
-		}
-		else if (selectedbutton == 1) // highlight menu button
-		{
-			menuButton.setFillColor(sf::Color::Yellow);
-			restartButton.setFillColor(sf::Color(100, 100, 100)); // reset restart button color
-		}
-	}
-	else if (gameOver)
-	{
-		isLeaderboardVisible = true; // show leaderboard on game over
-	}
+    // Настройки музыки
+    sf::Text musicText;
+    musicText.setFont(font);
+    musicText.setString("Music: " + std::string(game.musicEnabled ? "ON" : "OFF"));
+    musicText.setCharacterSize(30);
+    musicText.setFillColor(settingsSelection == 1 ? sf::Color::Yellow : sf::Color::White);
+    musicText.setPosition(WINDOW_WIDTH / 2 - musicText.getLocalBounds().width / 2, 200);
+    window.draw(musicText);
 
-	window.display();
+    // Кнопка назад
+    sf::Text backText;
+    backText.setFont(font);
+    backText.setString("Back");
+    backText.setCharacterSize(30);
+    backText.setFillColor(settingsSelection == 2 ? sf::Color::Yellow : sf::Color::White);
+    backText.setPosition(WINDOW_WIDTH / 2 - backText.getLocalBounds().width / 2, 280);
+    window.draw(backText);
+
+    window.display();
 }
 
-int main()
-{
-	// sfml version snippet
-	std::cout << "SFML version: "
-		<< SFML_VERSION_MAJOR << "."
-		<< SFML_VERSION_MINOR << "\n";
+void drawGameOverScreen() {
+    window.clear(sf::Color(30, 30, 30));
 
-	window.create(sf::VideoMode({ WINDOW_WIDTH, WINDOW_HEIGHT }), "Snake Game");
-	window.setFramerateLimit(60);
+    // Заголовок
+    sf::Text title;
+    title.setFont(font);
+    title.setString(game.gameWon ? "YOU WIN!" : "GAME OVER");
+    title.setCharacterSize(50);
+    title.setFillColor(game.gameWon ? sf::Color::Green : sf::Color::Red);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 100);
+    window.draw(title);
 
-	GameInit();
-	while (window.isOpen())
-	{
-		HandleInput();
-		GameUpdate(window);
-		DrawGame(window);
-	}
+    // Счет
+    sf::Text scoreText;
+    scoreText.setFont(font);
+    scoreText.setString("Your score: " + std::to_string(game.score));
+    scoreText.setCharacterSize(30);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
+    window.draw(scoreText);
 
-	return 0;
+    // Проверка на рекорд
+    bool isHighScore = records.size() < 10 || game.score > records.back().score;
+
+    // Вывод 5 лучших рекордов
+    int recordsToShow = std::min(5, (int)records.size());
+    for (int i = 0; i < recordsToShow; i++) {
+        float yPos = 230 + i * 35;
+
+        // Имя игрока
+        sf::Text nameText;
+        nameText.setFont(font);
+        nameText.setString(records[i].name);
+        nameText.setCharacterSize(24);
+        nameText.setFillColor(sf::Color::White);
+        nameText.setPosition(WINDOW_WIDTH / 2 - 120, yPos);
+        window.draw(nameText);
+
+        // Очки (выравнивание по правому краю)
+        sf::Text scoreText;
+        scoreText.setFont(font);
+        scoreText.setString(std::to_string(records[i].score));
+        scoreText.setCharacterSize(24);
+        scoreText.setFillColor(sf::Color::White);
+        scoreText.setPosition(WINDOW_WIDTH / 2 + 120 - scoreText.getLocalBounds().width, yPos);
+        window.draw(scoreText);
+    }
+
+    // Кнопка "Restart"
+    sf::Text restartText;
+    restartText.setFont(font);
+    restartText.setString("RESTART");
+    restartText.setCharacterSize(28);
+    restartText.setFillColor(gameOverSelection == 0 ? sf::Color::White : sf::Color(180, 180, 180));
+    restartText.setPosition(WINDOW_WIDTH / 2 - 220 + 100 - restartText.getLocalBounds().width / 2,
+        WINDOW_HEIGHT - 110);
+    window.draw(restartText);
+
+    // Кнопка "Main Menu"
+    sf::Text menuText;
+    menuText.setFont(font);
+    menuText.setString("MENU");
+    menuText.setCharacterSize(28);
+    menuText.setFillColor(gameOverSelection == 1 ? sf::Color::White : sf::Color(180, 180, 180));
+    menuText.setPosition(WINDOW_WIDTH / 2 + 20 + 100 - menuText.getLocalBounds().width / 2,
+        WINDOW_HEIGHT - 110);
+    window.draw(menuText);
+
+    window.display();
+}
+
+void drawPause() {
+    window.clear(sf::Color(30, 30, 30));
+
+    // Заголовок
+    sf::Text pauseText;
+    pauseText.setFont(font);
+    pauseText.setString("PAUSED");
+    pauseText.setCharacterSize(50);
+    pauseText.setFillColor(sf::Color::White);
+    pauseText.setPosition(WINDOW_WIDTH / 2 - pauseText.getLocalBounds().width / 2, 150);
+    window.draw(pauseText);
+
+    // Кнопка Continue
+    sf::Text continueText;
+    continueText.setFont(font);
+    continueText.setString("CONTINUE");
+    continueText.setCharacterSize(35);
+    continueText.setFillColor(pauseSelection == 0 ? sf::Color::Yellow : sf::Color::White);
+    continueText.setPosition(WINDOW_WIDTH / 2 - continueText.getLocalBounds().width / 2, 250);
+    window.draw(continueText);
+
+    // Кнопка Exit to menu
+    sf::Text exitText;
+    exitText.setFont(font);
+    exitText.setString("EXIT TO MENU");
+    exitText.setCharacterSize(35);
+    exitText.setFillColor(pauseSelection == 1 ? sf::Color::Yellow : sf::Color::White);
+    exitText.setPosition(WINDOW_WIDTH / 2 - exitText.getLocalBounds().width / 2, 300);
+    window.draw(exitText);
+
+    window.display();
+}
+
+void drawNewRecordPrompt() {
+    window.clear(sf::Color(30, 30, 30));
+
+    // Заголовок
+    sf::Text title;
+    title.setFont(font);
+    title.setString("NEW RECORD!");
+    title.setCharacterSize(50);
+    title.setFillColor(sf::Color::Yellow);
+    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 100);
+    window.draw(title);
+
+    // Информация о рекорде
+    sf::Text scoreText;
+    scoreText.setFont(font);
+    scoreText.setString("Score: " + std::to_string(game.score));
+    scoreText.setCharacterSize(30);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
+    window.draw(scoreText);
+
+    // Вопрос
+    sf::Text question;
+    question.setFont(font);
+    question.setString("Enter your name?");
+    question.setCharacterSize(30);
+    question.setFillColor(sf::Color::White);
+    question.setPosition(WINDOW_WIDTH / 2 - question.getLocalBounds().width / 2, 250);
+    window.draw(question);
+
+    // Кнопки Да/Нет
+    sf::Text yesText;
+    yesText.setFont(font);
+    yesText.setString("YES");
+    yesText.setCharacterSize(28);
+    yesText.setFillColor(promptSelection == 0 ? sf::Color::Green : sf::Color(150, 150, 150));
+    yesText.setPosition(WINDOW_WIDTH / 2 - yesText.getLocalBounds().width / 2, 300);
+    window.draw(yesText);
+
+    sf::Text noText;
+    noText.setFont(font);
+    noText.setString("NO");
+    noText.setCharacterSize(28);
+    noText.setFillColor(promptSelection == 1 ? sf::Color::Red : sf::Color(150, 150, 150));
+    noText.setPosition(WINDOW_WIDTH / 2 - noText.getLocalBounds().width / 2, 350);
+    window.draw(noText);
+
+    window.display();
+}
+
+void drawNameEntryScreen() {
+    window.clear(sf::Color(30, 30, 30));
+
+    // Информация о рекорде
+    sf::Text scoreText;
+    scoreText.setFont(font);
+    scoreText.setString("Score: " + std::to_string(game.score));
+    scoreText.setCharacterSize(30);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
+    window.draw(scoreText);
+
+    // Поле ввода имени с курсором
+    sf::Text nameText;
+    nameText.setFont(font);
+
+    // Анимация курсора (мигание каждые 0.5 секунды)
+    if (cursorBlinkClock.getElapsedTime().asSeconds() > 0.5f) {
+        cursorVisible = !cursorVisible;
+        cursorBlinkClock.restart();
+    }
+
+    // Добавляем курсор если нужно
+    std::string displayText = playerName;
+    if (cursorVisible) {
+        displayText += "_";
+    }
+
+    nameText.setString("Enter your name: " + displayText);
+    nameText.setCharacterSize(28);
+    nameText.setFillColor(sf::Color::Green);
+    nameText.setPosition(WINDOW_WIDTH / 2 - nameText.getLocalBounds().width / 2, 250);
+    window.draw(nameText);
+
+    // Подсказка по вводу
+    sf::Text hintText;
+    hintText.setFont(font);
+    hintText.setString("Press Enter to confirm");
+    hintText.setCharacterSize(20);
+    hintText.setFillColor(sf::Color(180, 180, 180));
+    hintText.setPosition(WINDOW_WIDTH / 2 - hintText.getLocalBounds().width / 2, 320);
+    window.draw(hintText);
+
+    window.display();
+}
+
+void handleGameInput(sf::Event& event) {
+    if (game.isGameStarted) {
+        if (event.type == sf::Event::KeyPressed) {
+            if (gameState == IN_GAME) {
+                if (event.key.code == sf::Keyboard::W && direction.y == 0) {
+                    nextDirection = { 0, -1 };
+                }
+                else if (event.key.code == sf::Keyboard::S && direction.y == 0) {
+                    nextDirection = { 0, 1 };
+                }
+                else if (event.key.code == sf::Keyboard::A && direction.x == 0) {
+                    nextDirection = { -1, 0 };
+                }
+                else if (event.key.code == sf::Keyboard::D && direction.x == 0) {
+                    nextDirection = { 1, 0 };
+                }
+                else if (event.key.code == sf::Keyboard::P) {
+                    gameState = PAUSE;
+                    game.isPaused = true; // Устанавливаем флаг паузы
+                    pauseSelection = 0; // Сброс выбора при открытии паузы
+                }
+            }
+        }
+    }
+}
+
+void handleMainMenuInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W) {
+            menuSelection = (menuSelection - 1 + 5) % 5;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::S) {
+            menuSelection = (menuSelection + 1) % 5;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            // Обработка выбора меню
+            switch (menuSelection) {
+            case 0: // Start Game
+                game.level = game.selectedDifficulty;
+                initGame();
+                gameState = IN_GAME;
+                if (game.soundEnabled) startSound.play();
+                break;
+            case 1: // Level Select
+                levelSelection = game.level - 1;
+                gameState = LEVEL_SELECT;
+                levelSelection = 0;
+                break;
+            case 2: // Records
+                loadRecords();
+                gameState = RECORDS_SCREEN;
+                break;
+            case 3:
+                settingsSelection = 0;  // Сбрасываем выбор в настройках
+                gameState = SETTINGS_MENU;
+                settingsSelection = 0;
+                break;
+            case 4: // Exit
+                window.close();
+                return;
+            }
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Escape) {
+            window.close();
+            return;
+        }
+    }
+}
+
+void handleLevelSelectInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W) {
+            levelSelection = (levelSelection - 1 + 6) % 6;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::S) {
+            levelSelection = (levelSelection + 1) % 6;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            if (levelSelection == 5) { // Back
+                gameState = MAIN_MENU;
+            }
+            else {
+                game.selectedDifficulty = levelSelection;
+            }
+        }
+        else if (event.key.code == sf::Keyboard::B) {
+            gameState = MAIN_MENU;
+        }
+    }
+}
+
+void handleRecordsInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::B) {
+            gameState = MAIN_MENU;
+        }
+    }
+}
+
+void handleSettingsInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W) {
+            settingsSelection = (settingsSelection - 1 + 3) % 3;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::S) {
+            settingsSelection = (settingsSelection + 1) % 3;
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            if (settingsSelection == 0) { // Sound
+                game.soundEnabled = !game.soundEnabled;
+            }
+            else if (settingsSelection == 1) { // Music
+                game.musicEnabled = !game.musicEnabled;
+                if (game.musicEnabled) bgMusic.play();
+                else bgMusic.stop();
+            }
+            else if (settingsSelection == 2) { // Back
+                gameState = MAIN_MENU;
+            }
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::B) {
+            gameState = MAIN_MENU;
+        }
+    }
+}
+
+void handleGameOverInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::A || event.key.code == sf::Keyboard::D) {
+            gameOverSelection = 1 - gameOverSelection; // Переключаем между 0 и 1
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            if (gameOverSelection == 0) {
+                initGame();
+                gameState = IN_GAME;
+                game.startDelayTimer = 5.0f; // Устанавливаем таймер ожидания перед стартом игры
+            }
+            else {
+                gameState = MAIN_MENU;
+            }
+        }
+    }
+}
+
+void handlePauseInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W || event.key.code == sf::Keyboard::S) {
+            pauseSelection = 1 - pauseSelection; // Переключаем между 0 и 1
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            if (pauseSelection == 0) {
+                game.startDelayTimer = 5.0f;
+                game.isPaused = false;
+                game.isGameStarted = false;
+                gameState = IN_GAME; // Продолжить игру
+            }
+            else {
+                gameState = MAIN_MENU; // Выход в меню
+            }
+            if (game.soundEnabled) hoverSound.play();
+        }
+    }
+}
+
+void handleNewRecordPromptInput(sf::Event& event) {
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W || event.key.code == sf::Keyboard::S) {
+            promptSelection = 1 - promptSelection; // Переключаем между 0 и 1
+            if (game.soundEnabled) hoverSound.play();
+        }
+        else if (event.key.code == sf::Keyboard::Enter) {
+            if (promptSelection == 0) { // Yes
+                gameState = NAME_ENTRY;
+                nameEntryActive = true; // Активируем ввод имени
+            }
+            else { // No
+                gameState = GAME_OVER;
+            }
+        }
+    }
+}
+
+void handleNameEntryInput(sf::Event& event) {
+
+    if (event.type == sf::Event::TextEntered && nameEntryActive) {
+        cursorBlinkClock.restart(); // Сброс таймера мигания курсора
+        cursorVisible = true; // Показываем курсор
+        if (event.text.unicode == '\b') {
+            if (!playerName.empty()) playerName.pop_back();
+        }
+        else if (event.text.unicode >= 32 && event.text.unicode < 128 && playerName.length() < 10) {
+            playerName += static_cast<char>(event.text.unicode);
+        }
+    }
+
+    if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
+        if (playerName.empty()) playerName = "XYZ";
+        addRecord(playerName, game.score);
+        gameState = GAME_OVER;
+        nameEntryActive = false; // Деактивируем ввод имени
+    }
+}
+
+int main() {
+
+    srand(static_cast<unsigned>(time(nullptr)));
+    loadResources();
+    loadRecords();
+
+    if (game.musicEnabled) {
+        bgMusic.play();
+    }
+
+    sf::Clock clock;
+    float timer = 0;
+
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed) {
+                window.close();
+            }
+
+            switch (gameState) {
+            case MAIN_MENU:
+                handleMainMenuInput(event);
+                break;
+            case LEVEL_SELECT:
+                handleLevelSelectInput(event);
+                break;
+            case IN_GAME:
+                handleGameInput(event);
+                break;
+            case PAUSE:
+                handlePauseInput(event);
+                break;
+            case GAME_OVER:
+                handleGameOverInput(event);
+                break;
+            case RECORDS_SCREEN:
+                handleRecordsInput(event);
+                break;
+            case SETTINGS_MENU:
+                handleSettingsInput(event);
+                break;
+            case NEW_RECORD_PROMPT:
+                handleNewRecordPromptInput(event);
+                break;
+            case NAME_ENTRY:
+                handleNameEntryInput(event);
+                break;
+            }
+        }
+
+        // Обновление игры
+        if (gameState == IN_GAME && !game.gameOver) {
+            float deltaTime = clock.restart().asSeconds();
+            if (deltaTime > 0.1f) deltaTime = 0.1f; // Ограничиваем слишком большие значения
+
+            if (!game.isGameStarted && gameState == IN_GAME) {
+                game.startDelayTimer -= deltaTime;
+                if (game.startDelayTimer <= 0) {
+                    game.isGameStarted = true;
+                    game.startDelayTimer = 0;
+                }
+            }
+            else {
+                timer += deltaTime;
+
+                if (timer > game.speed) {
+                    timer = 0;
+                    moveSnake();
+
+                    if (game.gameOver) {
+                        gameState = GAME_OVER;
+                        bool isNewRecord = records.size() < 10 || game.score > records.back().score;
+                        if (isNewRecord) {
+                            gameState = isNewRecord ? NEW_RECORD_PROMPT : NAME_ENTRY;
+                            promptSelection = 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Отрисовка
+        switch (gameState) {
+        case MAIN_MENU:
+            drawMainMenu();
+            break;
+        case LEVEL_SELECT:
+            drawLevelSelect();
+            break;
+        case IN_GAME:
+            drawGame();
+            break;
+        case PAUSE:
+            drawPause();
+            break;
+        case GAME_OVER:
+            drawGameOverScreen();
+            break;
+        case RECORDS_SCREEN:
+            drawRecordsScreen();
+            break;
+        case SETTINGS_MENU:
+            drawSettingsMenu();
+            break;
+        case NEW_RECORD_PROMPT:
+            drawNewRecordPrompt();
+            break;
+        case NAME_ENTRY:
+            drawNameEntryScreen();
+            break;
+        }
+    }
+
+    return 0;
 }

@@ -19,13 +19,28 @@ const int CELL_SIZE = 30;
 const int WINDOW_WIDTH = GRID_SIZE * CELL_SIZE;
 const int WINDOW_HEIGHT = GRID_SIZE * CELL_SIZE + 50; // +50 для панели счета
 const float BASE_SPEED = 0.2f;
-std::vector<std::string> levelMenuList = {
+std::vector<std::string> levelMenuItems = {
       "Easy",
       "Harder than Easy",
       "Medium",
       "Easier than Hard",
       "Hard",
       "Back"
+};
+
+std::vector<std::string> mainMenuItems = {
+    "Start Game",
+    "Level Select",
+    "Records",
+    "Settings",
+    "Exit"
+};
+
+// Перечисление для выравнивания
+enum class TextAlignment {
+    Left,
+    Center,
+    Right
 };
 
 // Глобальные переменные
@@ -100,6 +115,8 @@ int gameOverSelection = 1;
 int promptSelection = 1;
 int pauseSelection = 0;
 
+
+
 // Функции
 void loadResources() {
     if (!font.loadFromFile("Resources/Fonts/PoetsenOne-Regular.ttf")) {
@@ -133,7 +150,7 @@ void loadResources() {
     }
 }
 
-void spawnApple() {
+void generateNewApplePosition() {
     std::unordered_set<int> occupiedCells;
 
     // Добавляем позиции стен
@@ -188,6 +205,35 @@ bool checkCollision(int x, int y) {
     return false;
 }
 
+void initApple() {
+    generateNewApplePosition();
+}
+
+void initSnake() {
+    snake.clear();
+    snake.push_back({ GRID_SIZE / 2, GRID_SIZE / 2, true });
+    // Добавляем начальные сегменты тела (если нужно)
+    for (int i = 1; i < 3; i++) {
+        snake.push_back({ GRID_SIZE / 2 - i, GRID_SIZE / 2, false });
+    }
+}
+
+void initWalls() {
+    walls.clear();
+    for (int i = 0; i < GRID_SIZE; ++i) {
+        walls.push_back({ i, 0 });
+        walls.push_back({ i, GRID_SIZE - 1 });
+        walls.push_back({ 0, i });
+        walls.push_back({ GRID_SIZE - 1, i });
+    }
+}
+
+void initGameObjects() {
+	initApple();
+    initSnake();
+    initWalls();
+}
+
 void initGame() {
     gameState = MAIN_MENU;
     loadRecords();
@@ -196,28 +242,9 @@ void initGame() {
     game.gameOver = false;
     game.gameWon = false;
     game.isGameStarted = false;
-    game.startDelayTimer = 5.0f;
+    game.startDelayTimer = 5.0f; 
 
-    // Инициализация змейки
-    snake.clear();
-    snake.push_back({ GRID_SIZE / 2, GRID_SIZE / 2, true });
-
-    // Добавляем начальные сегменты тела (если нужно)
-    for (int i = 1; i < 3; i++) {
-        snake.push_back({ GRID_SIZE / 2 - i, GRID_SIZE / 2, false });
-    }
-
-    // Генерация стен
-    walls.clear();
-    for (int i = 0; i < GRID_SIZE; ++i) {
-        walls.push_back({ i, 0 }); // Верхняя стена
-        walls.push_back({ i, GRID_SIZE - 1 }); // Нижняя стена
-        walls.push_back({ 0, i }); // Левая стена
-        walls.push_back({ GRID_SIZE - 1, i }); // Правая стена
-    }
-
-    // Генерация яблока
-    spawnApple();
+    initGameObjects();
 
     // Настройки в зависимости от уровня
     switch (game.level) {
@@ -289,7 +316,7 @@ void moveSnake() {
     else {
         game.score += game.pointsPerApple;
         if (game.soundEnabled) eatSound.play();
-        spawnApple();
+        generateNewApplePosition();
     }
 }
 
@@ -338,37 +365,13 @@ void addRecord(const std::string& name, int score) {
     saveRecords();
 }
 
-void drawGame() {
-    window.clear(sf::Color(30, 30, 30));
-
-    // Рисуем игровое поле
-    sf::RectangleShape gameArea(sf::Vector2f(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE));
-    gameArea.setFillColor(sf::Color::Black);
-    gameArea.setPosition(0, 50);
-    window.draw(gameArea);
-
-    // Рисуем стены
-    wallSprite.setTexture(wallTexture);
-    wallSprite.setOrigin(wallTexture.getSize().x / 2, wallTexture.getSize().y / 2);
-    wallSprite.setScale(
-        static_cast<float>(CELL_SIZE) / wallTexture.getSize().x,
-        static_cast<float>(CELL_SIZE) / wallTexture.getSize().y
-    );
-    for (const auto& wall : walls) {
-        wallSprite.setPosition(
-            wall.x * CELL_SIZE + CELL_SIZE / 2,
-            wall.y * CELL_SIZE + 50 + CELL_SIZE / 2
-        );
-        window.draw(wallSprite);
-    }
-
-    // Рисуем змейку
+void drawSnake() {
     for (size_t i = 0; i < snake.size(); i++) {
         sf::Sprite segment;
         if (snake[i].isHead) {
             segment.setTexture(snakeHeadTexture);
             segment.setOrigin(snakeHeadTexture.getSize().x / 2, snakeHeadTexture.getSize().y / 2);
-            // Поворот головы
+
             if (direction.x == 1) segment.setRotation(0);
             else if (direction.x == -1) segment.setRotation(180);
             else if (direction.y == -1) segment.setRotation(270);
@@ -389,12 +392,29 @@ void drawGame() {
         );
         window.draw(segment);
     }
+}
 
-    // Рисуем яблоко
+void drawWalls() {
+    wallSprite.setTexture(wallTexture);
+    wallSprite.setOrigin(wallTexture.getSize().x / 2, wallTexture.getSize().y / 2);
+    wallSprite.setScale(
+        static_cast<float>(CELL_SIZE) / wallTexture.getSize().x,
+        static_cast<float>(CELL_SIZE) / wallTexture.getSize().y
+    );
+    for (const auto& wall : walls) {
+        wallSprite.setPosition(
+            wall.x * CELL_SIZE + CELL_SIZE / 2,
+            wall.y * CELL_SIZE + 50 + CELL_SIZE / 2
+        );
+        window.draw(wallSprite);
+    }
+}
+
+void drawApple() {
     appleSprite.setTexture(appleTexture);
-    appleSprite.setOrigin(appleTexture.getSize().x / 2, appleTexture.getSize().y / 2); // Центрирование
+    appleSprite.setOrigin(appleTexture.getSize().x / 2.f, appleTexture.getSize().y / 2.f);
     appleSprite.setScale(
-        static_cast<float>(CELL_SIZE) / appleTexture.getSize().x * 0.9f, // Масштаб с небольшим отступом
+        static_cast<float>(CELL_SIZE) / appleTexture.getSize().x * 0.9f,
         static_cast<float>(CELL_SIZE) / appleTexture.getSize().y * 0.9f
     );
     appleSprite.setPosition(
@@ -402,36 +422,72 @@ void drawGame() {
         apple.y * CELL_SIZE + 50 + CELL_SIZE / 2
     );
     window.draw(appleSprite);
+}
+
+void drawGameObjects(){
+    drawSnake();
+    drawWalls();
+    drawApple();
+}
+
+void drawGameArea() {
+    sf::RectangleShape gameArea(sf::Vector2f(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE));
+    gameArea.setFillColor(sf::Color::Black);
+    gameArea.setPosition(0, 50);
+    window.draw(gameArea);
+}
+
+void drawText(const std::string& str, float x, float y,
+              unsigned int size = 30, sf::Color color = sf::Color::White,
+              TextAlignment align = TextAlignment::Left,
+              sf::Text::Style style = sf::Text::Regular) {
+    sf::Text text;
+	text.setFont(font);
+    text.setString(str);
+    text.setCharacterSize(size);
+    text.setFillColor(color);
+    text.setStyle(style);
+    
+	sf::FloatRect bounds = text.getLocalBounds();
+
+    switch (align)
+    {
+    case TextAlignment::Left:
+        break;
+    case TextAlignment::Center:
+		x -= bounds.width / 2;
+        break;
+    case TextAlignment::Right:
+		x -= bounds.width;
+        break;
+    }
+
+	text.setPosition(x, y);
+	window.draw(text);
+}
+
+void drawGame() {
+    window.clear(sf::Color(30, 30, 30));
+
+	drawGameArea();
+	drawGameObjects();
 
     // Если игра ожидает старта (таймер обратного отсчета)
     if (!game.isGameStarted) {
-        sf::Text countdownText;
-        countdownText.setFont(font);
-        // Округляем вверх, чтобы не показывать "0.0"
         int secondsLeft = static_cast<int>(std::ceil(game.startDelayTimer));
-        countdownText.setString("Game starts in: " + std::to_string(secondsLeft) + "s");
-        countdownText.setCharacterSize(30);
-        countdownText.setFillColor(sf::Color::Yellow);
-        countdownText.setStyle(sf::Text::Bold);
-        countdownText.setOrigin(countdownText.getLocalBounds().width / 2, countdownText.getLocalBounds().height / 2);
-        countdownText.setPosition(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        drawText("Game starts in: " + std::to_string(secondsLeft) + "s",
+			WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2 - 50, 30, sf::Color::Yellow, TextAlignment::Center);
 
         // Затемнение фона
         sf::RectangleShape overlay(sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
         overlay.setFillColor(sf::Color(0, 0, 0, 150));
         window.draw(overlay);
-
-        window.draw(countdownText);
     }
 
     // Рисуем счет и уровень
-    sf::Text infoText;
-    infoText.setFont(font);
-    infoText.setString("Score: " + std::to_string(game.score) + " | Level: " + levelMenuList[game.level]);
-    infoText.setCharacterSize(24);
-    infoText.setFillColor(sf::Color::White);
-    infoText.setPosition(WINDOW_WIDTH - infoText.getLocalBounds().width - 10, 10);
-    window.draw(infoText);
+    std::string scoreText = "Score: " + std::to_string(game.score) +
+        " | Level: " + levelMenuItems[game.level];
+	drawText(scoreText, WINDOW_WIDTH - 10, 10, 24, sf::Color::White, TextAlignment::Right);
 
     window.display();
 }
@@ -439,40 +495,15 @@ void drawGame() {
 void drawMainMenu() {
     window.clear(sf::Color(30, 30, 30));
 
-    sf::Text title;
-    title.setFont(font);
-    title.setString("SNAKE GAME");
-    title.setCharacterSize(60);
-    title.setFillColor(sf::Color::Green);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
-    window.draw(title);
+ 	drawText("Snake Game", WINDOW_WIDTH / 2, 50, 60, sf::Color::Green, TextAlignment::Center);
 
-    std::vector<std::string> menuItems = {
-        "Start Game",
-        "Level Select",
-        "Records",
-        "Settings",
-        "Exit"
-    };
-
-    for (size_t i = 0; i < menuItems.size(); i++) {
-        sf::Text item;
-        item.setFont(font);
-        item.setString(menuItems[i]);
-        item.setCharacterSize(30);
-        item.setFillColor(i == menuSelection ? sf::Color::Yellow : sf::Color::White);
-        item.setPosition(WINDOW_WIDTH / 2 - item.getLocalBounds().width / 2, 180 + i * 40);
-        window.draw(item);
+    for (size_t i = 0; i < mainMenuItems.size(); i++) {
+        drawText(mainMenuItems[i], WINDOW_WIDTH / 2, 180 + i * 40, 30,
+			i == menuSelection ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
     }
 
-    sf::Text controls;
-    controls.setFont(font);
-    controls.setString("WSAD: Navigate  Enter: Select P: Pause B: Back");
-    controls.setCharacterSize(20);
-    controls.setFillColor(sf::Color(150, 150, 150));
-    controls.setPosition(WINDOW_WIDTH / 2 - controls.getLocalBounds().width / 2,
-        WINDOW_HEIGHT - 40);
-    window.draw(controls);
+    drawText("WSAD: Navigate  Enter: Select  P: Pause  B: Back",
+		WINDOW_WIDTH / 2, WINDOW_HEIGHT - 40, 20, sf::Color(150, 150, 150), TextAlignment::Center);
 
     window.display();
 }
@@ -480,30 +511,19 @@ void drawMainMenu() {
 void drawLevelSelect() {
     window.clear(sf::Color(30, 30, 30));
 
-    sf::Text title;
-    title.setFont(font);
-    title.setString("SELECT DIFFICULTY");
-    title.setCharacterSize(50);
-    title.setFillColor(sf::Color::Green);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
-    window.draw(title);
+	drawText("SELECT LEVEL", WINDOW_WIDTH / 2, 50, 50, sf::Color::White, TextAlignment::Center);
 
     // Добавляем "current" к выбранному уровню
-    std::vector<std::string> displayNames = levelMenuList;
-    for (size_t i = 0; i < levelMenuList.size(); i++) {
+    std::vector<std::string> displayNames = levelMenuItems;
+    for (size_t i = 0; i < levelMenuItems.size(); i++) {
         if (i == game.selectedDifficulty) {
             displayNames[i] += " (current)";
         }
     }
 
-    for (size_t i = 0; i < levelMenuList.size(); i++) {
-        sf::Text item;
-        item.setFont(font);
-        item.setString(displayNames[i]);
-        item.setCharacterSize(24);
-        item.setFillColor(i == levelSelection ? sf::Color::Yellow : sf::Color::White);
-        item.setPosition(WINDOW_WIDTH / 2 - item.getLocalBounds().width / 2, 150 + i * 40);
-        window.draw(item);
+    for (size_t i = 0; i < levelMenuItems.size(); i++) {
+        drawText(displayNames[i], WINDOW_WIDTH / 2, 150 + i * 40, 24,
+            i == levelSelection ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
     }
 
     window.display();
@@ -512,31 +532,9 @@ void drawLevelSelect() {
 void drawRecordsScreen() {
     window.clear(sf::Color(30, 30, 30)); // Темно-серый фон
 
-    // Заголовок
-    sf::Text title;
-    title.setFont(font);
-    title.setString("HIGH SCORES");
-    title.setCharacterSize(50);
-    title.setFillColor(sf::Color::Green);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 40);
-    window.draw(title);
-
-    // Шапка таблицы
-    sf::Text headerName;
-    headerName.setFont(font);
-    headerName.setString("NAME");
-    headerName.setCharacterSize(26);
-    headerName.setFillColor(sf::Color::Yellow);
-    headerName.setPosition(150, 120);
-    window.draw(headerName);
-
-    sf::Text headerScore;
-    headerScore.setFont(font);
-    headerScore.setString("SCORE");
-    headerScore.setCharacterSize(26);
-    headerScore.setFillColor(sf::Color::Yellow);
-    headerScore.setPosition(400, 120);
-    window.draw(headerScore);
+ 	drawText("HIGH SCORES", WINDOW_WIDTH / 2, 40, 50, sf::Color::Green, TextAlignment::Center);
+	drawText("NAME", 150, 120, 26, sf::Color::Yellow, TextAlignment::Left);
+	drawText("SCORE", 400, 120, 26, sf::Color::Yellow, TextAlignment::Left);
 
     // Разделительная линия
     sf::RectangleShape line(sf::Vector2f(500, 2));
@@ -547,44 +545,15 @@ void drawRecordsScreen() {
     // Вывод рекордов
     for (int i = 0; i < 10; i++) {
         float yPos = 180 + i * 40;
-
         // Порядковый номер
-        sf::Text numText;
-        numText.setFont(font);
-        numText.setString(std::to_string(i + 1) + ".");
-        numText.setCharacterSize(24);
-        numText.setFillColor(sf::Color::White);
-        numText.setPosition(100, yPos);
-        window.draw(numText);
-
+		drawText(std::to_string(i + 1) + ".", 100, yPos, 24, sf::Color::White, TextAlignment::Left);
         // Имя игрока
-        sf::Text nameText;
-        nameText.setFont(font);
-        nameText.setString(records[i].name);
-        nameText.setCharacterSize(24);
-        nameText.setFillColor(sf::Color::White);
-        nameText.setPosition(150, yPos);
-        window.draw(nameText);
-
-        // Очки (выравнивание по правому краю)
-        sf::Text scoreText;
-        scoreText.setFont(font);
-        scoreText.setString(std::to_string(records[i].score));
-        scoreText.setCharacterSize(24);
-        scoreText.setFillColor(sf::Color::White);
-        scoreText.setPosition(400, yPos);
-        window.draw(scoreText);
+ 		drawText(records[i].name, 150, yPos, 24, sf::Color::White, TextAlignment::Left);
+        // Очки 
+		drawText(std::to_string(records[i].score), 450, yPos, 24, sf::Color::White, TextAlignment::Right);
     }
 
-    // Кнопка возврата
-    sf::Text backText;
-    backText.setFont(font);
-    backText.setString("Press B to return to menu");
-    backText.setCharacterSize(22);
-    backText.setFillColor(sf::Color(150, 150, 150));
-    backText.setPosition(WINDOW_WIDTH / 2 - backText.getLocalBounds().width / 2,
-        WINDOW_HEIGHT - 60);
-    window.draw(backText);
+	drawText("Press B to return to menu", WINDOW_WIDTH / 2, WINDOW_HEIGHT - 60, 22, sf::Color(150, 150, 150), TextAlignment::Center);
 
     window.display();
 }
@@ -592,41 +561,13 @@ void drawRecordsScreen() {
 void drawSettingsMenu() {
     window.clear(sf::Color(30, 30, 30));
 
-    // Заголовок
-    sf::Text title;
-    title.setFont(font);
-    title.setString("SETTINGS");
-    title.setCharacterSize(50);
-    title.setFillColor(sf::Color::Green);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 50);
-    window.draw(title);
-
-    // Настройки звука
-    sf::Text soundText;
-    soundText.setFont(font);
-    soundText.setString("Sound: " + std::string(game.soundEnabled ? "ON" : "OFF"));
-    soundText.setCharacterSize(30);
-    soundText.setFillColor(settingsSelection == 0 ? sf::Color::Yellow : sf::Color::White);
-    soundText.setPosition(WINDOW_WIDTH / 2 - soundText.getLocalBounds().width / 2, 150);
-    window.draw(soundText);
-
-    // Настройки музыки
-    sf::Text musicText;
-    musicText.setFont(font);
-    musicText.setString("Music: " + std::string(game.musicEnabled ? "ON" : "OFF"));
-    musicText.setCharacterSize(30);
-    musicText.setFillColor(settingsSelection == 1 ? sf::Color::Yellow : sf::Color::White);
-    musicText.setPosition(WINDOW_WIDTH / 2 - musicText.getLocalBounds().width / 2, 200);
-    window.draw(musicText);
-
-    // Кнопка назад
-    sf::Text backText;
-    backText.setFont(font);
-    backText.setString("Back");
-    backText.setCharacterSize(30);
-    backText.setFillColor(settingsSelection == 2 ? sf::Color::Yellow : sf::Color::White);
-    backText.setPosition(WINDOW_WIDTH / 2 - backText.getLocalBounds().width / 2, 280);
-    window.draw(backText);
+	drawText("SETTINGS", WINDOW_WIDTH / 2, 50, 50, sf::Color::Green, TextAlignment::Center);
+    drawText("Sound: " + std::string(game.soundEnabled ? "ON" : "OFF"), WINDOW_WIDTH / 2, 150, 30,
+        settingsSelection == 0 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
+    drawText("Music: " + std::string(game.musicEnabled ? "ON" : "OFF"), WINDOW_WIDTH / 2, 200, 30,
+		settingsSelection == 1 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
+    drawText("Back", WINDOW_WIDTH / 2, 350, 30,
+		settingsSelection == 2 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
 
     window.display();
 }
@@ -634,23 +575,8 @@ void drawSettingsMenu() {
 void drawGameOverScreen() {
     window.clear(sf::Color(30, 30, 30));
 
-    // Заголовок
-    sf::Text title;
-    title.setFont(font);
-    title.setString(game.gameWon ? "YOU WIN!" : "GAME OVER");
-    title.setCharacterSize(50);
-    title.setFillColor(game.gameWon ? sf::Color::Green : sf::Color::Red);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 100);
-    window.draw(title);
-
-    // Счет
-    sf::Text scoreText;
-    scoreText.setFont(font);
-    scoreText.setString("Your score: " + std::to_string(game.score));
-    scoreText.setCharacterSize(30);
-    scoreText.setFillColor(sf::Color::White);
-    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
-    window.draw(scoreText);
+    drawText(game.gameWon ? "YOU WIN!" : "GAME OVER", WINDOW_WIDTH / 2, 150, 30, game.gameWon ? sf::Color::Green : sf::Color::Red, TextAlignment::Center);
+	drawText("Your score: " + std::to_string(game.score), WINDOW_WIDTH / 2, 180, 30, sf::Color::White, TextAlignment::Center);
 
     // Проверка на рекорд
     bool isHighScore = records.size() < 10 || game.score > records.back().score;
@@ -659,45 +585,15 @@ void drawGameOverScreen() {
     int recordsToShow = std::min(5, (int)records.size());
     for (int i = 0; i < recordsToShow; i++) {
         float yPos = 230 + i * 35;
-
         // Имя игрока
-        sf::Text nameText;
-        nameText.setFont(font);
-        nameText.setString(records[i].name);
-        nameText.setCharacterSize(24);
-        nameText.setFillColor(sf::Color::White);
-        nameText.setPosition(WINDOW_WIDTH / 2 - 120, yPos);
-        window.draw(nameText);
-
-        // Очки (выравнивание по правому краю)
-        sf::Text scoreText;
-        scoreText.setFont(font);
-        scoreText.setString(std::to_string(records[i].score));
-        scoreText.setCharacterSize(24);
-        scoreText.setFillColor(sf::Color::White);
-        scoreText.setPosition(WINDOW_WIDTH / 2 + 120 - scoreText.getLocalBounds().width, yPos);
-        window.draw(scoreText);
+		drawText(records[i].name, WINDOW_WIDTH / 2 - 120, yPos, 24, sf::Color::White, TextAlignment::Left);
+        // Очки
+		drawText(std::to_string(records[i].score), WINDOW_WIDTH / 2 + 120, yPos, 24, sf::Color::White, TextAlignment::Right);
     }
-
-    // Кнопка "Restart"
-    sf::Text restartText;
-    restartText.setFont(font);
-    restartText.setString("RESTART");
-    restartText.setCharacterSize(28);
-    restartText.setFillColor(gameOverSelection == 0 ? sf::Color::White : sf::Color(180, 180, 180));
-    restartText.setPosition(WINDOW_WIDTH / 2 - 220 + 100 - restartText.getLocalBounds().width / 2,
-        WINDOW_HEIGHT - 110);
-    window.draw(restartText);
-
-    // Кнопка "Main Menu"
-    sf::Text menuText;
-    menuText.setFont(font);
-    menuText.setString("MENU");
-    menuText.setCharacterSize(28);
-    menuText.setFillColor(gameOverSelection == 1 ? sf::Color::White : sf::Color(180, 180, 180));
-    menuText.setPosition(WINDOW_WIDTH / 2 + 20 + 100 - menuText.getLocalBounds().width / 2,
-        WINDOW_HEIGHT - 110);
-    window.draw(menuText);
+    drawText("RESTART", WINDOW_WIDTH / 2 - 220 + 100, WINDOW_HEIGHT - 110, 28,
+		gameOverSelection == 0 ? sf::Color::White : sf::Color(180, 180, 180), TextAlignment::Left);
+    drawText("MENU", WINDOW_WIDTH / 2 + 20 + 100, WINDOW_HEIGHT - 110, 28,
+        gameOverSelection == 1 ? sf::Color::White : sf::Color(180, 180, 180), TextAlignment::Right);
 
     window.display();
 }
@@ -705,32 +601,11 @@ void drawGameOverScreen() {
 void drawPause() {
     window.clear(sf::Color(30, 30, 30));
 
-    // Заголовок
-    sf::Text pauseText;
-    pauseText.setFont(font);
-    pauseText.setString("PAUSED");
-    pauseText.setCharacterSize(50);
-    pauseText.setFillColor(sf::Color::White);
-    pauseText.setPosition(WINDOW_WIDTH / 2 - pauseText.getLocalBounds().width / 2, 150);
-    window.draw(pauseText);
-
-    // Кнопка Continue
-    sf::Text continueText;
-    continueText.setFont(font);
-    continueText.setString("CONTINUE");
-    continueText.setCharacterSize(35);
-    continueText.setFillColor(pauseSelection == 0 ? sf::Color::Yellow : sf::Color::White);
-    continueText.setPosition(WINDOW_WIDTH / 2 - continueText.getLocalBounds().width / 2, 250);
-    window.draw(continueText);
-
-    // Кнопка Exit to menu
-    sf::Text exitText;
-    exitText.setFont(font);
-    exitText.setString("EXIT TO MENU");
-    exitText.setCharacterSize(35);
-    exitText.setFillColor(pauseSelection == 1 ? sf::Color::Yellow : sf::Color::White);
-    exitText.setPosition(WINDOW_WIDTH / 2 - exitText.getLocalBounds().width / 2, 300);
-    window.draw(exitText);
+	drawText("PAUSED", WINDOW_WIDTH / 2, 100, 50, sf::Color::White, TextAlignment::Center);
+    drawText("CONTINUE", WINDOW_WIDTH / 2, 250, 35,
+		pauseSelection == 0 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
+    drawText("EXIT TO MENU", WINDOW_WIDTH / 2, 300, 35,
+        pauseSelection == 1 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
 
     window.display();
 }
@@ -738,49 +613,11 @@ void drawPause() {
 void drawNewRecordPrompt() {
     window.clear(sf::Color(30, 30, 30));
 
-    // Заголовок
-    sf::Text title;
-    title.setFont(font);
-    title.setString("NEW RECORD!");
-    title.setCharacterSize(50);
-    title.setFillColor(sf::Color::Yellow);
-    title.setPosition(WINDOW_WIDTH / 2 - title.getLocalBounds().width / 2, 100);
-    window.draw(title);
-
-    // Информация о рекорде
-    sf::Text scoreText;
-    scoreText.setFont(font);
-    scoreText.setString("Score: " + std::to_string(game.score));
-    scoreText.setCharacterSize(30);
-    scoreText.setFillColor(sf::Color::White);
-    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
-    window.draw(scoreText);
-
-    // Вопрос
-    sf::Text question;
-    question.setFont(font);
-    question.setString("Enter your name?");
-    question.setCharacterSize(30);
-    question.setFillColor(sf::Color::White);
-    question.setPosition(WINDOW_WIDTH / 2 - question.getLocalBounds().width / 2, 250);
-    window.draw(question);
-
-    // Кнопки Да/Нет
-    sf::Text yesText;
-    yesText.setFont(font);
-    yesText.setString("YES");
-    yesText.setCharacterSize(28);
-    yesText.setFillColor(promptSelection == 0 ? sf::Color::Green : sf::Color(150, 150, 150));
-    yesText.setPosition(WINDOW_WIDTH / 2 - yesText.getLocalBounds().width / 2, 300);
-    window.draw(yesText);
-
-    sf::Text noText;
-    noText.setFont(font);
-    noText.setString("NO");
-    noText.setCharacterSize(28);
-    noText.setFillColor(promptSelection == 1 ? sf::Color::Red : sf::Color(150, 150, 150));
-    noText.setPosition(WINDOW_WIDTH / 2 - noText.getLocalBounds().width / 2, 350);
-    window.draw(noText);
+	drawText("NEW RECORD!", WINDOW_WIDTH / 2, 100, 50, sf::Color::White, TextAlignment::Center);
+	drawText("Score: " + std::to_string(game.score), WINDOW_WIDTH / 2, 180, 30, sf::Color::White, TextAlignment::Center);
+	drawText("Enter your name?", WINDOW_WIDTH / 2, 250, 24, sf::Color::White, TextAlignment::Center);
+    drawText("YES", WINDOW_WIDTH / 2, 300, 28, promptSelection == 0 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
+	drawText("NO", WINDOW_WIDTH / 2, 350, 28, promptSelection == 1 ? sf::Color::Yellow : sf::Color::White, TextAlignment::Center);
 
     window.display();
 }
@@ -788,45 +625,20 @@ void drawNewRecordPrompt() {
 void drawNameEntryScreen() {
     window.clear(sf::Color(30, 30, 30));
 
-    // Информация о рекорде
-    sf::Text scoreText;
-    scoreText.setFont(font);
-    scoreText.setString("Score: " + std::to_string(game.score));
-    scoreText.setCharacterSize(30);
-    scoreText.setFillColor(sf::Color::White);
-    scoreText.setPosition(WINDOW_WIDTH / 2 - scoreText.getLocalBounds().width / 2, 180);
-    window.draw(scoreText);
-
-    // Поле ввода имени с курсором
-    sf::Text nameText;
-    nameText.setFont(font);
-
+	drawText("Score: " + std::to_string(game.score), WINDOW_WIDTH / 2, 180, 30, sf::Color::White, TextAlignment::Center);
     // Анимация курсора (мигание каждые 0.5 секунды)
     if (cursorBlinkClock.getElapsedTime().asSeconds() > 0.5f) {
         cursorVisible = !cursorVisible;
         cursorBlinkClock.restart();
     }
-
     // Добавляем курсор если нужно
     std::string displayText = playerName;
     if (cursorVisible) {
         displayText += "_";
     }
-
-    nameText.setString("Enter your name: " + displayText);
-    nameText.setCharacterSize(28);
-    nameText.setFillColor(sf::Color::Green);
-    nameText.setPosition(WINDOW_WIDTH / 2 - nameText.getLocalBounds().width / 2, 250);
-    window.draw(nameText);
-
-    // Подсказка по вводу
-    sf::Text hintText;
-    hintText.setFont(font);
-    hintText.setString("Press Enter to confirm");
-    hintText.setCharacterSize(20);
-    hintText.setFillColor(sf::Color(180, 180, 180));
-    hintText.setPosition(WINDOW_WIDTH / 2 - hintText.getLocalBounds().width / 2, 320);
-    window.draw(hintText);
+	drawText("Enter your name (max 10 characters):", WINDOW_WIDTH / 2, 250, 28, sf::Color::White, TextAlignment::Center);
+	drawText(displayText, WINDOW_WIDTH / 2, 300, 28, sf::Color::Green, TextAlignment::Center);
+	drawText("Press Enter to confirm", WINDOW_WIDTH / 2, 400, 20, sf::Color(180, 180, 180), TextAlignment::Center);
 
     window.display();
 }

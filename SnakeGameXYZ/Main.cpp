@@ -36,7 +36,6 @@ std::vector<std::string> mainMenuItems = {
     "Exit"
 };
 
-// Перечисление для выравнивания
 enum class TextAlignment {
     Left,
     Center,
@@ -58,7 +57,7 @@ bool cursorVisible = true;
 
 enum GameState {
     MAIN_MENU,
-    LEVEL_SELECT,
+    LEVEL_SELECT_MENU,
     IN_GAME,
     PAUSE,
     GAME_OVER,
@@ -67,11 +66,26 @@ enum GameState {
     NEW_RECORD_PROMPT,
     NAME_ENTRY
 };
-GameState gameState = MAIN_MENU;
+
+enum DifficultySettings {
+    EASY,
+    HARDER_THAN_EASY,
+    MEDIUM,
+    EASIER_THAN_HARD,
+    HARD
+};
+
+enum MainMenu {
+    START_GAME,
+    LEVEL_SELECTION,
+    RECORDS,
+    SETTINGS,
+    EXIT
+};
 
 struct GameData {
     int score = 0;
-    int level = 1;
+    DifficultySettings level = EASY;
     float speed = BASE_SPEED;
     int pointsPerApple = 2;
     bool gameOver = false;
@@ -83,6 +97,7 @@ struct GameData {
     bool isGameStarted = false;
     bool isPaused = false;
     int selectedDifficulty = 0;
+    GameState gameState = MAIN_MENU;
 } game;
 
 struct SnakeSegment {
@@ -108,7 +123,7 @@ sf::Vector2i nextDirection(1, 0);
 std::vector<Record> records(10); // Изначально 10 записей XYZ с 0 очков
 
 // Глобальные переменные меню
-int menuSelection = 0;
+MainMenu menuSelection = START_GAME;
 int levelSelection = 0;
 int settingsSelection = 0;
 int gameOverSelection = 1;
@@ -235,7 +250,7 @@ void initGameObjects() {
 }
 
 void initGame() {
-    gameState = MAIN_MENU;
+    game.gameState = MAIN_MENU;
     loadRecords();
 
     game.score = 0;
@@ -246,29 +261,28 @@ void initGame() {
 
     initGameObjects();
 
-    // Настройки в зависимости от уровня
     switch (game.level) {
-    case 0: // Простой
+    case EASY:
         game.speed = BASE_SPEED * 1.0f;
         game.pointsPerApple = 2;
         break;
 
-    case 1: // Тяжелее простого
+    case HARDER_THAN_EASY:
         game.speed = BASE_SPEED * 0.8f;
         game.pointsPerApple = 4;
         break;
 
-    case 2: // Средний
+    case MEDIUM:
         game.speed = BASE_SPEED * 0.6f;
         game.pointsPerApple = 6;
         break;
 
-    case 3: // Легче тяжелого
+    case EASIER_THAN_HARD:
         game.speed = BASE_SPEED * 0.4f;
         game.pointsPerApple = 8;
         break;
 
-    case 4: // Тяжелый
+    case HARD:
         game.speed = BASE_SPEED * 0.2f;
         game.pointsPerApple = 10;
         break;
@@ -380,6 +394,29 @@ void drawSnake() {
         else {
             segment.setTexture(snakeBodyTexture);
             segment.setOrigin(snakeBodyTexture.getSize().x / 2, snakeBodyTexture.getSize().y / 2);
+
+            // Определяем направление текущего сегмента
+            sf::Vector2i seg_direction;
+            if (i < snake.size() - 1) {
+                // Для средних сегментов - направление к следующему сегменту
+                seg_direction = sf::Vector2i(
+                    snake[i + 1].x - snake[i].x,
+                    snake[i + 1].y - snake[i].y
+                );
+            }
+            else {
+                // Для последнего сегмента - направление от предыдущего
+                seg_direction = sf::Vector2i(
+                    snake[i].x - snake[i - 1].x,
+                    snake[i].y - snake[i - 1].y
+                );
+            }
+
+            // Поворот тела
+            if (seg_direction.x == 1) segment.setRotation(0);
+            else if (seg_direction.x == -1) segment.setRotation(180);
+            else if (seg_direction.y == -1) segment.setRotation(270);
+            else segment.setRotation(90);
         }
 
         segment.setScale(
@@ -646,7 +683,7 @@ void drawNameEntryScreen() {
 void handleGameInput(sf::Event& event) {
     if (game.isGameStarted) {
         if (event.type == sf::Event::KeyPressed) {
-            if (gameState == IN_GAME) {
+            if (game.gameState == IN_GAME) {
                 if (event.key.code == sf::Keyboard::W && direction.y == 0) {
                     nextDirection = { 0, -1 };
                 }
@@ -660,7 +697,7 @@ void handleGameInput(sf::Event& event) {
                     nextDirection = { 1, 0 };
                 }
                 else if (event.key.code == sf::Keyboard::P) {
-                    gameState = PAUSE;
+                    game.gameState = PAUSE;
                     game.isPaused = true; // Устанавливаем флаг паузы
                     pauseSelection = 0; // Сброс выбора при открытии паузы
                 }
@@ -672,37 +709,37 @@ void handleGameInput(sf::Event& event) {
 void handleMainMenuInput(sf::Event& event) {
     if (event.type == sf::Event::KeyPressed) {
         if (event.key.code == sf::Keyboard::W) {
-            menuSelection = (menuSelection - 1 + 5) % 5;
+            menuSelection = static_cast<MainMenu>((menuSelection - 1 + 5) % 5);
             if (game.soundEnabled) hoverSound.play();
         }
         else if (event.key.code == sf::Keyboard::S) {
-            menuSelection = (menuSelection + 1) % 5;
+            menuSelection = static_cast<MainMenu>((menuSelection + 1) % 5);
             if (game.soundEnabled) hoverSound.play();
         }
         else if (event.key.code == sf::Keyboard::Enter) {
             // Обработка выбора меню
             switch (menuSelection) {
-            case 0: // Start Game
-                game.level = game.selectedDifficulty;
+            case START_GAME:
+                game.level = static_cast<DifficultySettings>(game.selectedDifficulty);
                 initGame();
-                gameState = IN_GAME;
+                game.gameState = IN_GAME;
                 if (game.soundEnabled) startSound.play();
                 break;
-            case 1: // Level Select
+            case LEVEL_SELECTION:
                 levelSelection = game.level - 1;
-                gameState = LEVEL_SELECT;
+                game.gameState = LEVEL_SELECT_MENU;
                 levelSelection = 0;
                 break;
-            case 2: // Records
+            case RECORDS:
                 loadRecords();
-                gameState = RECORDS_SCREEN;
+                game.gameState = RECORDS_SCREEN;
                 break;
-            case 3:
-                settingsSelection = 0;  // Сбрасываем выбор в настройках
-                gameState = SETTINGS_MENU;
+            case SETTINGS:
+                settingsSelection = 0;
+                game.gameState = SETTINGS_MENU;
                 settingsSelection = 0;
                 break;
-            case 4: // Exit
+            case EXIT:
                 window.close();
                 return;
             }
@@ -727,14 +764,14 @@ void handleLevelSelectInput(sf::Event& event) {
         }
         else if (event.key.code == sf::Keyboard::Enter) {
             if (levelSelection == 5) { // Back
-                gameState = MAIN_MENU;
+                game.gameState = MAIN_MENU;
             }
             else {
                 game.selectedDifficulty = levelSelection;
             }
         }
         else if (event.key.code == sf::Keyboard::B) {
-            gameState = MAIN_MENU;
+            game.gameState = MAIN_MENU;
         }
     }
 }
@@ -742,7 +779,7 @@ void handleLevelSelectInput(sf::Event& event) {
 void handleRecordsInput(sf::Event& event) {
     if (event.type == sf::Event::KeyPressed) {
         if (event.key.code == sf::Keyboard::B) {
-            gameState = MAIN_MENU;
+            game.gameState = MAIN_MENU;
         }
     }
 }
@@ -767,12 +804,12 @@ void handleSettingsInput(sf::Event& event) {
                 else bgMusic.stop();
             }
             else if (settingsSelection == 2) { // Back
-                gameState = MAIN_MENU;
+                game.gameState = MAIN_MENU;
             }
             if (game.soundEnabled) hoverSound.play();
         }
         else if (event.key.code == sf::Keyboard::B) {
-            gameState = MAIN_MENU;
+            game.gameState = MAIN_MENU;
         }
     }
 }
@@ -786,11 +823,11 @@ void handleGameOverInput(sf::Event& event) {
         else if (event.key.code == sf::Keyboard::Enter) {
             if (gameOverSelection == 0) {
                 initGame();
-                gameState = IN_GAME;
+                game.gameState = IN_GAME;
                 game.startDelayTimer = 5.0f; // Устанавливаем таймер ожидания перед стартом игры
             }
             else {
-                gameState = MAIN_MENU;
+                game.gameState = MAIN_MENU;
             }
         }
     }
@@ -807,10 +844,10 @@ void handlePauseInput(sf::Event& event) {
                 game.startDelayTimer = 5.0f;
                 game.isPaused = false;
                 game.isGameStarted = false;
-                gameState = IN_GAME; // Продолжить игру
+                game.gameState = IN_GAME; // Продолжить игру
             }
             else {
-                gameState = MAIN_MENU; // Выход в меню
+                game.gameState = MAIN_MENU; // Выход в меню
             }
             if (game.soundEnabled) hoverSound.play();
         }
@@ -820,16 +857,16 @@ void handlePauseInput(sf::Event& event) {
 void handleNewRecordPromptInput(sf::Event& event) {
     if (event.type == sf::Event::KeyPressed) {
         if (event.key.code == sf::Keyboard::W || event.key.code == sf::Keyboard::S) {
-            promptSelection = 1 - promptSelection; // Переключаем между 0 и 1
+            promptSelection = 1 - promptSelection;
             if (game.soundEnabled) hoverSound.play();
         }
         else if (event.key.code == sf::Keyboard::Enter) {
-            if (promptSelection == 0) { // Yes
-                gameState = NAME_ENTRY;
-                nameEntryActive = true; // Активируем ввод имени
+            if (promptSelection == 0) {
+                game.gameState = NAME_ENTRY;
+                nameEntryActive = true;
             }
-            else { // No
-                gameState = GAME_OVER;
+            else {
+                game.gameState = GAME_OVER;
             }
         }
     }
@@ -838,8 +875,8 @@ void handleNewRecordPromptInput(sf::Event& event) {
 void handleNameEntryInput(sf::Event& event) {
 
     if (event.type == sf::Event::TextEntered && nameEntryActive) {
-        cursorBlinkClock.restart(); // Сброс таймера мигания курсора
-        cursorVisible = true; // Показываем курсор
+        cursorBlinkClock.restart();
+        cursorVisible = true;
         if (event.text.unicode == '\b') {
             if (!playerName.empty()) playerName.pop_back();
         }
@@ -851,8 +888,8 @@ void handleNameEntryInput(sf::Event& event) {
     if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
         if (playerName.empty()) playerName = "XYZ";
         addRecord(playerName, game.score);
-        gameState = GAME_OVER;
-        nameEntryActive = false; // Деактивируем ввод имени
+        game.gameState = GAME_OVER;
+        nameEntryActive = false;
     }
 }
 
@@ -876,11 +913,11 @@ int main() {
                 window.close();
             }
 
-            switch (gameState) {
+            switch (game.gameState) {
             case MAIN_MENU:
                 handleMainMenuInput(event);
                 break;
-            case LEVEL_SELECT:
+            case LEVEL_SELECT_MENU:
                 handleLevelSelectInput(event);
                 break;
             case IN_GAME:
@@ -908,11 +945,11 @@ int main() {
         }
 
         // Обновление игры
-        if (gameState == IN_GAME && !game.gameOver) {
+        if (game.gameState == IN_GAME && !game.gameOver) {
             float deltaTime = clock.restart().asSeconds();
             if (deltaTime > 0.1f) deltaTime = 0.1f; // Ограничиваем слишком большие значения
 
-            if (!game.isGameStarted && gameState == IN_GAME) {
+            if (!game.isGameStarted && game.gameState == IN_GAME) {
                 game.startDelayTimer -= deltaTime;
                 if (game.startDelayTimer <= 0) {
                     game.isGameStarted = true;
@@ -927,10 +964,10 @@ int main() {
                     moveSnake();
 
                     if (game.gameOver) {
-                        gameState = GAME_OVER;
+                        game.gameState = GAME_OVER;
                         bool isNewRecord = records.size() < 10 || game.score > records.back().score;
                         if (isNewRecord) {
-                            gameState = isNewRecord ? NEW_RECORD_PROMPT : NAME_ENTRY;
+                            game.gameState = isNewRecord ? NEW_RECORD_PROMPT : NAME_ENTRY;
                             promptSelection = 1;
                         }
                     }
@@ -939,11 +976,11 @@ int main() {
         }
 
         // Отрисовка
-        switch (gameState) {
+        switch (game.gameState) {
         case MAIN_MENU:
             drawMainMenu();
             break;
-        case LEVEL_SELECT:
+        case LEVEL_SELECT_MENU:
             drawLevelSelect();
             break;
         case IN_GAME:

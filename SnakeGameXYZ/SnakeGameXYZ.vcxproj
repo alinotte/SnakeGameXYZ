@@ -19,7 +19,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Drawing.cpp" />
+    <ClCompile Include="GameConstants.cpp" />
+    <ClCompile Include="GameData.cpp" />
+    <ClCompile Include="GameObjects.cpp" />
+    <ClCompile Include="InputHandling.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Records.cpp" />
+    <ClCompile Include="Resources.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Drawing.h" />
+    <ClInclude Include="GameConstants.h" />
+    <ClInclude Include="GameData.h" />
+    <ClInclude Include="GameObjects.h" />
+    <ClInclude Include="InputHandling.h" />
+    <ClInclude Include="Records.h" />
+    <ClInclude Include="Resources.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
